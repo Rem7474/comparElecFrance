@@ -1,0 +1,85 @@
+# GitHub Copilot Project Instructions
+
+## Contexte du projet
+Développer une application web en HTML, CSS et JavaScript permettant à un utilisateur d’importer et d’analyser ses données de consommation électrique (JSON / XLSX exporté depuis Enedis).  
+L’application doit proposer une simulation des coûts selon différents abonnements d’électricité et estimer les économies réalisables via une installation photovoltaïque selon la région et l’orientation des panneaux en France.  
+
+Ce projet est 100 % front-end (aucun serveur).  
+
+---
+
+## Objectifs principaux
+- Importer un fichier JSON (format Enedis) ou Excel/XLSX de consommation (dates, heures, kWh).  
+- Analyser la consommation : totaux, moyennes, pics horaires, répartitions temporelles.  
+- Comparer les coûts selon différents abonnements : Base, Heures Pleines/Creuses, Tempo, etc.  
+- Simuler la production solaire estimée selon la région, l’orientation et l’inclinaison.  
+- Calculer les économies potentielles annuelles (autoconsommation + injection réseau).  
+- Présenter les résultats sous forme de graphiques et tableaux interactifs.  
+
+---
+
+## Stack technique
+- HTML pour la structure de l’interface.  
+- CSS pour le style et le design responsive.  
+- JavaScript pur (vanilla JS) pour le traitement, les calculs et les graphiques.  
+ - Librairies recommandées : SheetJS (`xlsx`) pour lire/écrire XLSX et manipuler des feuilles Excel ; Chart.js ou D3.js pour les graphiques. Papaparse reste une option uniquement si vous devez prendre en charge des CSV externes.  
+- Stockage local autorisé via `localStorage`.  
+
+---
+
+## Structure recommandée du projet
+- `/index.html` : structure principale et intégration JS/CSS.  
+- `/style.css` : design clair et adaptatif.  
+- `/script.js` : logique applicative et graphique.  
+- `/assets/` : icônes, images et ressources externes.  
+
+---
+
+## Fonctionnalités à implémenter
+
+### Importation JSON / XLSX
+- Lecture du fichier local via un input (JSON / Excel/XLSX).
+- Parsing du JSON attendu (structure Enedis : `cons.aggregats.heure.donnees`) ou conversion des feuilles Excel via SheetJS.
+- Affichage d’un aperçu et validation du format.  
+
+### Analyse et calculs
+- Moyenne, max, min, répartition journalière et horaire.  
+- Estimation de la consommation annuelle.  
+
+### Simulation des tarifs
+- Choix du mode tarifaire : Base / HP-HC / Tempo.  
+- Paramètres modifiables : puissance souscrite, prix des kWh, heures creuses/heures pleines.  
+- Calcul du coût total par formule.  
+
+### Simulation photovoltaïque
+- Saisie ou sélection d’une région (France métropolitaine).  
+- Orientation et inclinaison modifiables.  
+- Estimation de la production solaire annuelle moyenne selon région.  
+- Calcul des économies possibles selon l’autoconsommation estimée.  
+
+### Visualisation des données
+- Tableaux récapitulatifs des résultats clés.  
+- Graphiques comparatifs de consommation et coûts via Chart.js.  
+- Indicateurs : consommation annuelle, coût total, économie photovoltaïque, taux d’autoconsommation.  
+
+---
+
+## Bonnes pratiques pour Copilot
+ - Créer des fonctions nommées et commentées (ex. `parseJsonData()`, `calculateBill()`, `simulateSolarProduction()`).  
+- Séparer la logique métier, la gestion d’événements et l’affichage graphique.  
+- Écrire du code modulaire et compréhensible.  
+- Favoriser des noms de variables explicites et cohérents.  
+- Prévoir la possibilité d’intégrer ultérieurement une API (tarifs ou météo).  
+
+---
+
+## Fonctionnalités optionnelles
+- Export du rapport (PDF ou XLSX/CSV).  
+- Thème clair/sombre.  
+- LocalStorage pour mémoriser les choix de l’utilisateur.  
+- Interface multilingue (FR/EN).  
+
+---
+
+# Fin du fichier
+Copilot doit se baser sur ces instructions pour générer un code structuré, fonctionnel et compréhensible, adapté à une application web éducative, interactive et locale.

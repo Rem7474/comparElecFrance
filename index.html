@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ComparatifElec - Téléchargement Enedis (52 semaines)</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js for visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Récupération consommation Enedis — 52 semaines</h1>
+
+    <section class="panel">
+      <h2>1) Télécharger les 52 fichiers hebdomadaires</h2>
+      <p>Entrez le PRM (identifiant de votre compteur). Le bouton ci‑dessous génère un script JavaScript à coller dans la console du site Enedis (F12 → Console). Ce script récupérera automatiquement l'<code>idPersonne</code> via l'endpoint utilisateur et téléchargera/assemblera les 52 exports hebdomadaires.</p>
+
+      <label>PRM (ex: 12345678901234)
+        <input id="input-prm" placeholder="PRM" />
+      </label>
+
+      <label>Date de référence
+        <input type="date" id="input-date" />
+      </label>
+
+      <div class="controls">
+        <a id="btn-mon-compteur" class="login-button" href="https://mon-compte-particulier.enedis.fr/compteur" target="_blank" rel="noopener" title="Ouvrir Mon Compteur — permet d'obtenir le PRM">Mon compteur</a>
+        <button id="btn-generate-csv">Générer le script console (à coller sur Enedis)</button>
+      </div>
+
+      <!-- urls-area removed: step 1 now only generates console script -->
+      <div id="script-area" style="display:none;margin-top:8px">
+        <label>Script console (collez dans la console d'Enedis — F12 → Console). Le script récupère principalement du JSON et génère un unique fichier <code>consommation_annee.json</code> ; si la réponse n'est pas du JSON il retombe sur le texte.</label>
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+          <small style="color:#666">(Collez ce script dans la console d'Enedis et exécutez-le)</small>
+        </div>
+        <textarea id="console-script" rows="12" style="width:100%;font-family:monospace" readonly></textarea>
+      </div>
+
+      <div id="download-log" class="log" aria-live="polite"></div>
+    </section>
+
+    <section class="panel">
+      <h2>2) Charger le fichier JSON</h2>
+      <p>Après avoir généré le fichier via le script console (<code>consommation_annee.json</code>), sélectionnez-le ici. L'analyse démarre automatiquement à l'import.</p>
+      <input id="file-input" type="file" accept=".json" />
+      <div id="merge-log" class="log" aria-live="polite" style="display:none"></div>
+    </section>
+
+    <section class="panel">
+      <h2>3) Analyse annuelle & graphiques</h2>
+      <p>Chargez ci‑dessous le fichier annuel (généré par le script console ou par la fusion). L'outil calcule la consommation annuelle et affiche la distribution horaire moyenne, ainsi que min/max par heure.</p>
+      <div id="analysis-summary" style="margin-bottom:12px">
+        <div id="summary-metrics"></div>
+      </div>
+      <div style="width:100%;max-width:900px">
+        <canvas id="hourly-chart" width="900" height="360"></canvas>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:16px;align-items:flex-start">
+        <div style="width:320px">
+          <h4>Répartition HP / HC</h4>
+          <canvas id="hp-hc-pie" width="300" height="300"></canvas>
+        </div>
+        <div id="analysis-extra" style="flex:1">
+          <!-- placeholder for future analysis widgets -->
+        </div>
+      </div>
+      <div id="analysis-log" class="log" aria-live="polite" style="margin-top:8px"></div>
+    </section>
+
+    <section class="panel">
+      <h2>4) Simulation tarifs & photovoltaïque</h2>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px">
+          <h3>Tarifs utilisés (constantes du script)</h3>
+          <pre id="defaults-display" style="background:#f8f8f8;padding:8px;border:1px solid #ddd;font-size:13px;white-space:pre-wrap"></pre>
+          <div style="margin-top:8px;color:#666;font-size:13px">Les tarifs (prix du kWh et abonnements) sont définis dans le script (`DEFAULTS`) et utilisés pour les comparaisons. Pour modifier les tarifs, mettez à jour `script.js`.</div>
+        </div>
+
+        <div style="flex:1;min-width:260px">
+          <h3>Simulation photovoltaïque</h3>
+          <label>Puissance PV installée (kWp)
+            <input id="pv-kwp" type="number" step="0.1" value="3.0" />
+          </label>
+          <label>Région (simplifiée)
+            <select id="pv-region">
+              <option value="nord">Nord (700 kWh/kWp)</option>
+              <option value="centre">Centre (900 kWh/kWp)</option>
+              <option value="sud">Sud (1100 kWh/kWp)</option>
+            </select>
+          </label>
+          <label>Taux d'autoconsommation (%)
+            <input id="pv-self" type="number" step="1" value="30" />
+          </label>
+          <label>Consommation veille (W) — consommation permanente du foyer
+            <input id="pv-standby" type="number" step="1" value="50" />
+          </label>
+          <div style="margin-top:8px"><button id="btn-calc-pv">Estimer économies</button></div>
+          <div id="pv-results" class="log"></div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <button id="btn-export-report">Exporter rapport (JSON)</button>
+      </div>
+        <div style="margin-top:12px">
+        <h4>Comparer les offres</h4>
+        <div id="price-injection-display" style="color:#333;margin-bottom:6px">Prix d'injection utilisé: <strong id="injection-value"></strong> €/kWh (constante)</div>
+        <div style="margin-top:8px">
+          <button id="btn-compare-offers">Comparer offres (Base vs HP/HC) avec/sans PV</button>
+          <button id="btn-monthly-breakdown" style="margin-left:8px">Ventilation mois par mois</button>
+        </div>
+        <div id="offers-results" class="log" style="margin-top:8px"></div>
+        <!-- Tempo loading bar -->
+        <div id="tempo-loading" style="display:none;margin-top:6px">
+          <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
+          <div id="tempo-loading-text" class="loading-text" aria-live="polite"></div>
+        </div>
+        <div style="width:100%;max-width:600px;margin-top:8px">
+          <canvas id="offers-chart" width="600" height="240"></canvas>
+        </div>
+        <div style="width:100%;max-width:900px;margin-top:12px">
+          <canvas id="price-pv-chart" width="900" height="360"></canvas>
+        </div>
+        <div id="monthly-results" style="margin-top:12px"></div>
+        <div style="width:100%;max-width:900px;margin-top:8px">
+          <canvas id="monthly-chart" width="900" height="360"></canvas>
+        </div>
+        <div style="width:100%;max-width:900px;margin-top:8px">
+          <canvas id="monthly-savings-chart" width="900" height="320"></canvas>
+        </div>
+        <!-- TEMPO calendar visualization -->
+        <div style="margin-top:18px;padding:12px;border:1px solid #eee;border-radius:6px;background:#fcfcfd">
+          <h4>Calendrier TEMPO — visualisation</h4>
+          <div style="margin-top:8px">
+            <em>Le calendrier TEMPO est maintenant généré automatiquement pour la période des fichiers chargés.</em>
+          </div>
+          <div id="tempo-calendar-graph" class="tempo-calendar-graph" style="margin-top:12px"></div>
+          <div id="tempo-diagnostics" style="margin-top:8px;color:#333;font-size:13px"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <small>Important: pour que les téléchargements automatiques fonctionnent, vous devez être connecté au site Enedis dans le même navigateur. Si le serveur empêche les requêtes cross-origin, l'application ouvre les liens dans des iframes pour déclencher le téléchargement via la session du navigateur.</small>
+    </footer>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
