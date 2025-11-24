@@ -981,12 +981,16 @@
 
   const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, {mode:'base'}).cost;
   const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost;
-  // build records adjusted by self-consumed PV per hour (distribute consumption reduction proportionally across records of the hour)
+  
+  // build records adjusted by self-consumed PV per hour (use precise allocation from simulation)
+  // This ensures that for Tempo, we subtract the actual PV produced/consumed on that specific day/hour,
+  // rather than an average distributed by consumption.
   const recordsWithPV = records.map(r=> ({ ...r }));
-  // build per-hour total for distribution
-  const perHourTotal = Array.from({length:24}, ()=>0);
-  for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); perHourTotal[h] += v; }
-  for(const rec of recordsWithPV){ const h = new Date(rec.dateDebut).getHours(); const hourTotal = perHourTotal[h] || 0; const reduction = hourTotal ? (pvSim.consumedByHour[h] * (Number(rec.valeur||0) / hourTotal)) : 0; rec.valeur = Math.max(0, Number(rec.valeur||0) - reduction); }
+  for(const rec of recordsWithPV){
+    const key = String(rec.dateDebut);
+    const reduction = (pvSim.allocatedByTimestamp && pvSim.allocatedByTimestamp[key]) || 0;
+    rec.valeur = Math.max(0, Number(rec.valeur||0) - reduction);
+  }
   const tempoResWithPV = calculateTariffCostTempo(recordsWithPV);
 
     // export income
