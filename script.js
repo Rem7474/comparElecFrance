@@ -1,6 +1,5 @@
 // script.js — logique d'analyse JSON (consommation horaire), génération du script console Enedis,
 // récupération des couleurs Tempo (API + cache localStorage), simulation tarifs & photovoltaïque.
-// NOTE: Support Excel/XLSX et fusion multi-fichiers supprimés (flux JSON unique uniquement).
 (function(){
   const prmInput = document.getElementById('input-prm');
   const dateInput = document.getElementById('input-date');
@@ -8,6 +7,32 @@
 
   const fileInput = document.getElementById('file-input');
   const btnGenerateCsv = document.getElementById('btn-generate-csv');
+
+  // Theme handling
+  const btnThemeToggle = document.getElementById('btn-theme-toggle');
+  function applyTheme(isDark) {
+    if (isDark) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  }
+  // Init theme
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'dark') {
+    applyTheme(true);
+  } else if (savedTheme === 'light') {
+    applyTheme(false);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme(true); // default to system preference if no saved setting
+  }
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', () => {
+      const isDark = document.body.classList.contains('dark-mode');
+      applyTheme(!isDark);
+    });
+  }
   
   // Tempo loading UI
   const tempoLoading = { container: document.getElementById('tempo-loading'), fill: null, text: null, total: 0, done: 0 };
@@ -828,6 +853,13 @@
       const files = fileInput.files;
       if(!files || files.length === 0) return;
       appendAnalysisLog('Fichiers détectés — récupération des jours Tempo puis analyses...');
+
+      // Dynamic UI: Hide Step 1, Show Analysis
+      const step1 = document.getElementById('step-1-panel');
+      const analysisSec = document.getElementById('analysis-sections');
+      if(step1) step1.style.display = 'none';
+      if(analysisSec) analysisSec.classList.remove('hidden-section');
+
       // hide manual buttons (no longer necessary)
       try{ const b1 = document.getElementById('btn-analyze'); if(b1) b1.style.display = 'none'; const b2 = document.getElementById('btn-monthly-breakdown'); if(b2) b2.style.display = 'none'; const b3 = document.getElementById('btn-compare-offers'); if(b3) b3.style.display = 'none'; }catch(e){}
       (async ()=>{

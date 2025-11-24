@@ -1,41 +1,50 @@
-:root{--bg:#f7f9fb;--panel:#fff;--accent:#0b66c3;--muted:#666}
-body{font-family:Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:#111;margin:0;padding:24px}
+:root{--bg:#f7f9fb;--panel:#fff;--accent:#0b66c3;--muted:#666;--text:#111;--border:#eee;--log-bg:#f2f7ff;--input-bg:#fff;--input-border:#ddd}
+body.dark-mode{--bg:#121212;--panel:#1e1e1e;--accent:#4da3ff;--muted:#aaa;--text:#eee;--border:#333;--log-bg:#2a2a2a;--input-bg:#2c2c2c;--input-border:#444}
+
+body{font-family:Segoe UI, Roboto, Arial, sans-serif;background:var(--bg);color:var(--text);margin:0;padding:24px;transition:background .3s, color .3s}
 main{max-width:900px;margin:0 auto}
 h1{margin:0 0 16px}
-.top-actions{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.top-actions{display:flex;align-items:center;gap:12px;margin-bottom:12px;justify-content:space-between}
 .login-button{background:#0b8a3e;color:#fff;padding:8px 12px;border-radius:6px;text-decoration:none}
-.login-hint{margin:0;color:#333;font-size:13px}
+.login-hint{margin:0;color:var(--text);font-size:13px}
 h1{margin:0 0 16px}
-.panel{background:var(--panel);padding:16px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:16px}
+.panel{background:var(--panel);padding:16px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:16px;transition:background .3s}
 table{width:100%;border-collapse:collapse}
-th,td{padding:8px 10px;border-top:1px solid #eee;text-align:left}
-th{background:#f8fafc;font-weight:600}
-tr:hover td{background:#fcfdff}
+th,td{padding:8px 10px;border-top:1px solid var(--border);text-align:left}
+th{background:var(--bg);font-weight:600}
+tr:hover td{background:var(--bg)}
 
 /* removed modal styles (modal no longer used) */
 
 label{display:block;margin:8px 0}
-input[type=text],input[type=date],input[type=file],input#input-prm,input#input-person{padding:8px;border:1px solid #ddd;border-radius:4px;width:100%;box-sizing:border-box}
+input[type=text],input[type=date],input[type=file],input#input-prm,input#input-person,select,input[type=number]{padding:8px;border:1px solid var(--input-border);border-radius:4px;width:100%;box-sizing:border-box;background:var(--input-bg);color:var(--text)}
 .controls{margin-top:12px}
 button{background:var(--accent);color:#fff;border:none;padding:10px 14px;border-radius:6px;cursor:pointer;margin-right:8px}
 button#btn-stop{background:#777}
-.log{margin-top:12px;padding:8px;background:#f2f7ff;border-radius:6px;color:var(--muted);font-size:13px;min-height:48px}
-code{background:#eee;padding:2px 4px;border-radius:4px}
-footer{font-size:12px;color:#555}
+.log{margin-top:12px;padding:8px;background:var(--log-bg);border-radius:6px;color:var(--muted);font-size:13px;min-height:48px}
+code{background:var(--border);padding:2px 4px;border-radius:4px}
+footer{font-size:12px;color:var(--muted)}
 
 /* Tempo calendar styles (responsive and container-fit) */
 :root{ --tempo-gap:8px }
 .tempo-calendar-graph{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;width:100%}
-.tempo-month{border:1px solid #e6e6e6;padding:8px;border-radius:6px;background:#fff;box-sizing:border-box}
+.tempo-month{border:1px solid var(--border);padding:8px;border-radius:6px;background:var(--panel);box-sizing:border-box}
 .tempo-month h5{margin:0 0 8px;font-size:clamp(12px, 1.8vw, 14px)}
-.tempo-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--tempo-gap);margin-bottom:6px;color:#666;font-size:12px}
+.tempo-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--tempo-gap);margin-bottom:6px;color:var(--muted);font-size:12px}
 .tempo-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--tempo-gap);align-items:center}
 .tempo-day{width:100%;aspect-ratio:1/1;display:grid;place-items:center;border-radius:50%;cursor:pointer;font-size:clamp(10px, 2.4vw, 12px);color:#fff}
-.tempo-day.dim{opacity:0.25}
-.tempo-day.empty{background:transparent;border:1px dashed #eee;border-radius:4px;width:100%;aspect-ratio:1/1}
+.tempo-day.dim{opacity:0.25;color:var(--muted)}
+.tempo-day.empty{background:transparent;border:1px dashed var(--border);border-radius:4px;width:100%;aspect-ratio:1/1}
 .tempo-tooltip{position:fixed;pointer-events:none;background:#222;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;z-index:2000;box-shadow:0 6px 16px rgba(0,0,0,0.25);display:none}
 
 /* Loading bar */
-.loading-bar{width:100%;height:8px;background:#eee;border-radius:6px;overflow:hidden}
+.loading-bar{width:100%;height:8px;background:var(--border);border-radius:6px;overflow:hidden}
 .loading-fill{height:100%;width:0%;background:linear-gradient(90deg,#4e79a7,#59a14f);transition:width .2s ease}
-.loading-text{font-size:12px;color:#333;margin-top:4px}
+.loading-text{font-size:12px;color:var(--text);margin-top:4px}
+
+/* Dark mode toggle */
+.theme-toggle{background:transparent;color:var(--text);border:1px solid var(--border);padding:6px 10px;font-size:14px}
+
+/* Dynamic sections */
+.hidden-section{display:none}
+

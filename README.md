@@ -1,6 +1,6 @@
-# comparatifElec — Guide simplifié (JSON uniquement)
+# comparElec
 
-Application front‑end (HTML/CSS/JS) d'analyse de la consommation électrique Enedis + comparaison tarifs (Base, HP/HC, Tempo) et simulation photovoltaïque (PV). Flux désormais 100 % JSON (Excel/XLSX déprécié).
+Application front‑end (HTML/CSS/JS) d'analyse de la consommation électrique Enedis + comparaison tarifs (Base, HP/HC, Tempo) et simulation photovoltaïque (PV).
 
 ## Fichiers clés
 - `index.html` — interface (génération script console, import JSON, analyse, simulation).
@@ -20,7 +20,7 @@ Application front‑end (HTML/CSS/JS) d'analyse de la consommation électrique E
 2. Entrez le PRM et choisissez la date de référence (point de départ des 52 semaines en remontant).
 3. Cliquez sur « Générer le script console ». Le script est copié dans le presse‑papiers.
 4. Connectez-vous à votre compte Enedis dans un autre onglet (ou le même).
-5. Dans cet onglet Enedis (authentifié), ouvrez les Outils de développement (F12) → Console, collez le script et exécutez‑le. Un fichier `consommation_annee.json` est téléchargé (une seule année agrégée).
+5. Dans cet onglet Enedis (authentifié), ouvrez les Outils de développement (F12) → Console, collez le script et exécutez‑le. Un fichier `consommation_annee.json` est téléchargé (une seule année agrégée, la fonctionnalité native d'Enedis ayant été supprimé volontairement...)
 6. Revenez sur la page de l'application et importez ce fichier dans la section « Charger le fichier JSON » : l'analyse démarre automatiquement (chargement des jours Tempo, statistiques, graphiques, simulation PV et offres).
 7. Explorez les résultats :
    - Log d'analyse
@@ -57,18 +57,9 @@ python -m http.server 8000
 - Authentification non contournée : vous devez être connecté sur Enedis pour exécuter le script console.
 - Le script console s'exécute localement, n'envoie pas les données à des tiers.
 - Les couleurs Tempo futures sont estimées (algorithme) si non disponibles côté API.
-- Excel/XLSX : SUPPRIMÉ (simplification du flux). Pour revenir à un support multi‑fichiers, réintroduire SheetJS et un parseur dédié.
 
 ## Idées d'amélioration
 - Bouton « Vider cache Tempo » / « Forcer rafraîchissement ».
 - Mode sombre (CSS variables).
 - Export CSV des économies mensuelles.
 - Ajustement interactif des tarifs en UI (actuellement constants dans `DEFAULTS`).
-
-## Dépréciations
-- Ouverture séquentielle des 52 liens / fusion XLSX : remplacées par le script console JSON unique.
-- Modal de confirmation / multi‑onglets : retirés.
-
----
-
-Pour toute suggestion (fonction, visualisation, format d'export), ouvrez une issue ou demandez une modification.
