@@ -632,6 +632,9 @@
         options: { responsive:true, scales: { y: { beginAtZero:true, title: { display:true, text: 'kWh' } } } }
       });
     }catch(e){ console.warn('Erreur rendu graphique PV puissance', e); }
+
+    // Trigger update of comparison charts (offers & monthly breakdown) to reflect new PV settings
+    setTimeout(()=>{ try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){} }, 100);
   });
 
   // Export computed report (JSON)
