@@ -3,153 +3,278 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ComparatifElec - Téléchargement Enedis (52 semaines)</title>
+  <title>ComparatifElec - Analyse & Simulation</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Chart.js for visualizations -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 </head>
 <body>
-  <main>
-    <div class="top-actions">
-      <h1>Récupération consommation Enedis — 52 semaines</h1>
-      <button id="btn-theme-toggle" class="theme-toggle" title="Basculer mode sombre/clair">🌙 / ☀️</button>
-    </div>
-
-    <section class="panel" id="step-1-panel">
-      <h2>1) Télécharger les 52 fichiers hebdomadaires</h2>
-      <p>Entrez le PRM (identifiant de votre compteur). Le bouton ci‑dessous génère un script JavaScript à coller dans la console du site Enedis (F12 → Console). Ce script récupérera automatiquement l'<code>idPersonne</code> via l'endpoint utilisateur et téléchargera/assemblera les 52 exports hebdomadaires.</p>
-
-      <label>PRM (ex: 12345678901234)
-        <input id="input-prm" placeholder="PRM" />
-      </label>
-
-      <label>Date de référence
-        <input type="date" id="input-date" />
-      </label>
-
-      <div class="controls">
-        <a id="btn-mon-compteur" class="login-button" href="https://mon-compte-particulier.enedis.fr/compteur" target="_blank" rel="noopener" title="Ouvrir Mon Compteur — permet d'obtenir le PRM">Mon compteur</a>
-        <button id="btn-generate-csv">Générer le script console (à coller sur Enedis)</button>
+  <div class="app-container">
+    
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-title">
+        <span class="header-icon">⚡</span>
+        <div>
+          <h1>ComparatifElec</h1>
+          <div class="text-muted">Analyse de consommation & Simulation PV</div>
+        </div>
       </div>
+      <button id="btn-theme-toggle" class="btn btn-icon" title="Basculer mode sombre/clair">
+        🌙 / ☀️
+      </button>
+    </header>
 
-      <!-- urls-area removed: step 1 now only generates console script -->
-      <div id="script-area" style="display:none;margin-top:16px">
-        <label>Script console (collez dans la console d'Enedis — F12 → Console). Le script récupère principalement du JSON et génère un unique fichier <code>consommation_annee.json</code> ; si la réponse n'est pas du JSON il retombe sur le texte.</label>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-          <small class="text-muted">(Collez ce script dans la console d'Enedis et exécutez-le)</small>
-        </div>
-        <textarea id="console-script" rows="12" readonly></textarea>
+    <!-- Step 1 & 2: Data Import -->
+    <section id="step-1-panel" class="card">
+      <div class="card-header">
+        <h2 class="card-title">1. Importation des données Enedis</h2>
       </div>
-
-      <div id="download-log" class="log" aria-live="polite"></div>
-    </section>
-
-    <section class="panel" id="step-2-panel">
-      <h2>2) Charger le fichier JSON</h2>
-      <p>Après avoir généré le fichier via le script console (<code>consommation_annee.json</code>), sélectionnez-le ici. L'analyse démarre automatiquement à l'import.</p>
-      <input id="file-input" type="file" accept=".json" />
-      <div id="merge-log" class="log" aria-live="polite" style="display:none"></div>
-    </section>
-
-    <div id="analysis-sections" class="hidden-section">
-      <section class="panel">
-        <h2>3) Analyse annuelle & graphiques</h2>
-        <p>Chargez ci‑dessous le fichier annuel (généré par le script console ou par la fusion). L'outil calcule la consommation annuelle et affiche la distribution horaire moyenne, ainsi que min/max par heure.</p>
-        <div id="analysis-summary" style="margin-bottom:12px">
-          <div id="summary-metrics"></div>
-        </div>
-        <div style="width:100%;max-width:900px">
-          <canvas id="hourly-chart" width="900" height="360"></canvas>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:16px;align-items:flex-start">
-          <div style="width:320px">
-            <h4>Répartition HP / HC</h4>
-            <canvas id="hp-hc-pie" width="300" height="300"></canvas>
-          </div>
-          <div id="analysis-extra" style="flex:1">
-            <!-- placeholder for future analysis widgets -->
-          </div>
-        </div>
-        <div id="analysis-log" class="log" aria-live="polite" style="margin-top:8px"></div>
-      </section>
-
-      <section class="panel">
-        <h2>4) Simulation tarifs & photovoltaïque</h2>
-        <div style="display:flex;gap:24px;flex-wrap:wrap">
-          <div style="flex:1;min-width:280px">
-            <h3>Tarifs utilisés (constantes du script)</h3>
-            <pre id="defaults-display"></pre>
-            <div style="margin-top:8px;font-size:0.85rem" class="text-muted">Les tarifs (prix du kWh et abonnements) sont définis dans le script (`DEFAULTS`) et utilisés pour les comparaisons. Pour modifier les tarifs, mettez à jour `script.js`.</div>
+      
+      <div class="grid-2">
+        <div>
+          <h3>Générer le script d'extraction</h3>
+          <p class="text-muted">Pour récupérer vos données horaires sur 1 an (52 semaines), générez le script ci-dessous et collez-le dans la console de votre navigateur sur le site Enedis.</p>
+          
+          <div class="form-group">
+            <label for="input-prm">Numéro PRM (Point de Livraison)</label>
+            <input id="input-prm" placeholder="Ex: 12345678901234" />
           </div>
 
-          <div style="flex:1;min-width:280px">
-            <h3>Simulation photovoltaïque</h3>
-            <label>Puissance PV installée (kWp)
-              <input id="pv-kwp" type="number" step="0.1" value="3.0" />
-            </label>
-            <label>Région (simplifiée)
-              <select id="pv-region">
-                <option value="nord">Nord (700 kWh/kWp)</option>
-                <option value="centre">Centre (900 kWh/kWp)</option>
-                <option value="sud">Sud (1100 kWh/kWp)</option>
-              </select>
-            </label>
-            <label>Taux d'autoconsommation (%)
-              <input id="pv-self" type="number" step="1" value="30" />
-            </label>
-            <label>Consommation veille (W) — consommation permanente du foyer
-              <input id="pv-standby" type="number" step="1" value="50" />
-            </label>
-            <div style="margin-top:16px"><button id="btn-calc-pv">Estimer économies</button></div>
-            <div id="pv-results" class="log"></div>
+          <div class="form-group">
+            <label for="input-date">Date de référence (fin de période)</label>
+            <input type="date" id="input-date" />
+          </div>
+
+          <div class="btn-group">
+            <a id="btn-mon-compteur" class="btn btn-secondary" href="https://mon-compte-particulier.enedis.fr/compteur" target="_blank" rel="noopener">
+              Ouvrir Enedis
+            </a>
+            <button id="btn-generate-csv" class="btn btn-primary">
+              Générer le script
+            </button>
           </div>
         </div>
-        <div style="margin-top:24px">
-          <button id="btn-export-report">Exporter rapport (JSON)</button>
-        </div>
-          <div style="margin-top:24px">
-          <h4>Comparer les offres</h4>
-          <div id="price-injection-display" style="margin-bottom:8px">Prix d'injection utilisé: <strong id="injection-value"></strong> €/kWh (constante)</div>
-          <div style="margin-top:12px">
-            <button id="btn-compare-offers">Comparer offres (Base vs HP/HC) avec/sans PV</button>
-            <button id="btn-monthly-breakdown" style="margin-left:8px">Ventilation mois par mois</button>
-          </div>
-          <div id="offers-results" class="log" style="margin-top:16px"></div>
-          <!-- Tempo loading bar -->
-          <div id="tempo-loading" style="display:none;margin-top:12px">
-            <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
-            <div id="tempo-loading-text" class="loading-text" aria-live="polite"></div>
-          </div>
-          <div style="width:100%;max-width:600px;margin-top:16px">
-            <canvas id="offers-chart" width="600" height="240"></canvas>
-          </div>
-          <div style="width:100%;max-width:900px;margin-top:24px">
-            <canvas id="price-pv-chart" width="900" height="360"></canvas>
-          </div>
-          <div id="monthly-results" style="margin-top:24px"></div>
-          <div style="width:100%;max-width:900px;margin-top:16px">
-            <canvas id="monthly-chart" width="900" height="360"></canvas>
-          </div>
-          <div style="width:100%;max-width:900px;margin-top:16px">
-            <canvas id="monthly-savings-chart" width="900" height="320"></canvas>
-          </div>
-          <!-- TEMPO calendar visualization -->
-          <div style="margin-top:24px;padding:16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel)">
-            <h4>Calendrier TEMPO — visualisation</h4>
-            <div style="margin-top:8px">
-              <em>Le calendrier TEMPO est maintenant généré automatiquement pour la période des fichiers chargés.</em>
+
+        <div>
+          <h3>Script à exécuter</h3>
+          <div id="script-area" style="display:none;">
+            <div class="form-group">
+              <textarea id="console-script" rows="8" readonly onclick="this.select()"></textarea>
             </div>
-            <div id="tempo-calendar-graph" class="tempo-calendar-graph" style="margin-top:16px"></div>
-            <div id="tempo-diagnostics" style="margin-top:12px;font-size:0.85rem" class="text-muted"></div>
+            <div class="text-muted" style="font-size: 0.85rem;">
+              Copiez ce texte, allez sur l'onglet Enedis, ouvrez la console (F12), collez et validez.
+              Un fichier <code>consommation_annee.json</code> sera téléchargé.
+            </div>
+          </div>
+          <div id="download-log" class="log-container" style="margin-top: 1rem; display:none;"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="step-2-panel" class="card">
+      <div class="card-header">
+        <h2 class="card-title">2. Chargement du fichier</h2>
+      </div>
+      <div class="form-group">
+        <label for="file-input">Sélectionnez le fichier <code>consommation_annee.json</code></label>
+        <input id="file-input" type="file" accept=".json" />
+      </div>
+      <div id="merge-log" class="log-container hidden"></div>
+    </section>
+
+    <!-- Dashboard (Hidden initially) -->
+    <div id="dashboard-section" class="hidden">
+      
+      <!-- Key Metrics -->
+      <div class="grid-3 mb-4">
+        <div class="result-card" id="metric-total">
+          <h4>Consommation Totale</h4>
+          <div class="value" id="val-total-conso">- kWh</div>
+        </div>
+        <div class="result-card" id="metric-base">
+          <h4>Coût Est. (Base)</h4>
+          <div class="value" id="val-total-cost">- €</div>
+        </div>
+        <div class="result-card" id="metric-pv">
+          <h4>Potentiel PV</h4>
+          <div class="value" id="val-pv-prod">- kWh</div>
+          <div class="sub" id="val-pv-info">Production estimée</div>
+        </div>
+      </div>
+
+      <!-- Charts Row 1 -->
+      <div class="grid-2 mb-4">
+        <div class="card">
+          <h3 class="card-title mb-4">Profil Horaire Moyen</h3>
+          <canvas id="hourly-chart" height="250"></canvas>
+        </div>
+        <div class="card">
+          <h3 class="card-title mb-4">Répartition HP / HC</h3>
+          <div style="max-width: 300px; margin: 0 auto;">
+            <canvas id="hp-hc-pie"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulation Controls -->
+      <section class="card mb-4">
+        <div class="card-header">
+          <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+             <h2 class="card-title" style="margin:0">Paramètres & Simulation</h2>
+             <div style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="toggle-pv" checked style="width:auto; margin:0; cursor:pointer;">
+                <label for="toggle-pv" style="margin:0; cursor:pointer; font-weight:600;">Activer Photovoltaïque</label>
+             </div>
+          </div>
+        </div>
+        
+        <div id="pv-settings-container">
+            <div class="grid-3">
+            <div class="form-group">
+                <label for="pv-kwp">Puissance Installation (kWc)</label>
+                <input id="pv-kwp" type="number" step="0.1" value="3.0" />
+            </div>
+            <div class="form-group">
+                <label for="pv-region">Région (Ensoleillement)</label>
+                <select id="pv-region">
+                <option value="nord">Nord (700 kWh/kWc)</option>
+                <option value="centre" selected>Centre (900 kWh/kWc)</option>
+                <option value="sud">Sud (1100 kWh/kWc)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="pv-standby">Talon de consommation (W)</label>
+                <input id="pv-standby" type="number" step="10" value="50" />
+                <small class="text-muted">Consommation minimale permanente</small>
+            </div>
+            </div>
+
+            <!-- Cost Parameters for Optimization -->
+            <div class="mt-2" style="background: #f8f9fa; padding: 10px; border-radius: 4px;">
+                <div class="grid-2">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label for="pv-cost-base" style="font-size:0.9rem;">Coût Fixe (Onduleur, Admin) €</label>
+                        <input id="pv-cost-base" type="number" value="500" step="50">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label for="pv-cost-panel" style="font-size:0.9rem;">Coût par Panneau (400Wc) €</label>
+                        <input id="pv-cost-panel" type="number" value="200" step="10">
+                    </div>
+                </div>
+                <div class="form-group mt-2" style="margin-bottom:0; border-top:1px solid #eee; padding-top:8px;">
+                    <label for="pv-roi-years" style="font-size:0.9rem; display:flex; justify-content:space-between;">
+                        <span>Durée cible rentabilité</span>
+                        <span id="pv-roi-display" style="font-weight:bold; color:var(--primary);">15 ans</span>
+                    </label>
+                    <input id="pv-roi-years" type="range" min="5" max="25" value="15" step="1" style="width:100%;">
+                </div>
+            </div>
+            
+            <div id="pv-chart-container" class="mt-4">
+                <!-- PV Power Chart will be injected here -->
+            </div>
+        </div>
+
+        <div class="btn-group mt-4">
+          <button id="btn-calc-pv" class="btn btn-primary">Mettre à jour la simulation</button>
+          <button id="btn-compare-offers" class="btn btn-secondary hidden">Recalculer Offres</button> <!-- Hidden trigger -->
+          <button id="btn-monthly-breakdown" class="btn btn-secondary hidden">Recalculer Mois</button> <!-- Hidden trigger -->
+          <button id="btn-export-report" class="btn btn-secondary">Exporter Rapport JSON</button>
+        </div>
+      </section>
+
+      <!-- Results Section -->
+      <section class="card mb-4">
+        <div class="card-header">
+          <h2 class="card-title">Comparatif des Offres & Économies</h2>
+        </div>
+
+        <!-- Dynamic Results Grid -->
+        <div id="offers-results-grid" class="grid-3 mb-4">
+          <!-- Injected via JS -->
+        </div>
+
+        <!-- Hidden legacy log for compatibility if needed, or we repurpose it -->
+        <div id="offers-results" class="hidden"></div>
+        <div id="pv-results" class="hidden"></div>
+        <div id="analysis-log" class="hidden"></div>
+        <div id="summary-metrics" class="hidden"></div>
+
+        <!-- Charts Row 2 -->
+        <div class="grid-2">
+          <div>
+            <h4 class="mb-4">Coût Annuel Comparé</h4>
+            <canvas id="offers-chart" height="200"></canvas>
+          </div>
+          <div>
+            <h4 class="mb-4">Prix Moyen Mensuel (€/kWh)</h4>
+            <canvas id="price-pv-chart" height="200"></canvas>
           </div>
         </div>
       </section>
+
+      <!-- PV Profitability Report -->
+      <section id="pv-report-section" class="card mb-4 hidden">
+        <div class="card-header">
+            <h2 class="card-title" id="pv-report-title">Rapport de Rentabilité Photovoltaïque</h2>
+        </div>
+        <div id="pv-report-content" class="grid-3">
+            <!-- Injected via JS -->
+        </div>
+      </section>
+
+      <!-- Monthly Details -->
+      <section class="card mb-4">
+        <div class="card-header">
+          <h2 class="card-title">Détail Mensuel</h2>
+        </div>
+        
+        <div class="grid-2 mb-4">
+          <div>
+            <h4 class="mb-4">Coût Mensuel par Offre</h4>
+            <canvas id="monthly-chart" height="200"></canvas>
+          </div>
+          <div>
+            <h4 class="mb-4">Économies Mensuelles (Grâce au PV)</h4>
+            <canvas id="monthly-savings-chart" height="200"></canvas>
+          </div>
+        </div>
+
+        <div id="monthly-results" style="overflow-x: auto;"></div>
+      </section>
+
+      <!-- Tempo Calendar -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">Calendrier TEMPO Reconstitué</h2>
+        </div>
+        
+        <div id="tempo-loading" class="loading-container" style="display:none;">
+          <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
+          <div id="tempo-loading-text" class="loading-text">Chargement...</div>
+        </div>
+
+        <div id="tempo-calendar-graph" class="tempo-calendar-wrapper mt-4"></div>
+        <div id="tempo-diagnostics" class="text-muted mt-4" style="font-size: 0.85rem;"></div>
+      </section>
+
+      <!-- Hidden logs for debug/analysis -->
+      <div id="analysis-summary" class="hidden"></div>
+      <div id="analysis-log" class="log-container mt-4 hidden"></div>
+      
+      <!-- Info Display -->
+      <div class="card mt-4">
+        <h3>Informations Tarifs</h3>
+        <pre id="defaults-display" style="background: transparent; border: none; padding: 0;"></pre>
+        <div id="price-injection-display" class="hidden"></div>
+      </div>
+
     </div>
 
-    <footer>
-      <small>Important: pour que les téléchargements automatiques fonctionnent, vous devez être connecté au site Enedis dans le même navigateur. Si le serveur empêche les requêtes cross-origin, l'application ouvre les liens dans des iframes pour déclencher le téléchargement via la session du navigateur.</small>
+    <footer class="text-center text-muted" style="margin-top: 2rem;">
+      <small>ComparatifElec — Outil d'analyse locale (Client-side only)</small>
     </footer>
-  </main>
+  </div>
 
   <script src="script.js"></script>
 </body>
