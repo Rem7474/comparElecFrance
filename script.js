@@ -1684,6 +1684,18 @@
     updatePVVisibility();
   }
 
+  // --- Auto-Update on Input Change ---
+  const pvInputs = ['pv-kwp', 'pv-region', 'pv-standby', 'pv-cost-base', 'pv-cost-panel'];
+  pvInputs.forEach(id => {
+      const el = document.getElementById(id);
+      if(el){
+          el.addEventListener('change', ()=>{
+              const btnCalc = document.getElementById('btn-calc-pv');
+              if(btnCalc) btnCalc.click();
+          });
+      }
+  });
+
   // ROI Slider Listener
   const roiSlider = document.getElementById('pv-roi-years');
   const roiDisplay = document.getElementById('pv-roi-display');
@@ -1692,9 +1704,9 @@
           roiDisplay.textContent = e.target.value + ' ans';
       });
       roiSlider.addEventListener('change', ()=>{
-          // Trigger re-calculation to update the report with the new target duration
-          const btnCompare = document.getElementById('btn-compare-offers');
-          if(btnCompare) btnCompare.click();
+          // Trigger re-calculation
+          const btnCalc = document.getElementById('btn-calc-pv');
+          if(btnCalc) btnCalc.click();
       });
   }
 })();
