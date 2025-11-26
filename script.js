@@ -874,6 +874,21 @@
       (async ()=>{
         try{
           const records = await parseFilesToRecords(files);
+          
+          // Auto-estimate standby power
+          try {
+             const estimatedW = calculateStandbyFromRecords(records);
+             const sbInput = document.getElementById('pv-standby');
+             if(sbInput && estimatedW > 0) {
+                 sbInput.value = estimatedW;
+                 // Update button text if exists
+                 const btnEst = document.getElementById('btn-estimate-standby');
+                 if(btnEst) btnEst.textContent = '✅ ' + estimatedW + 'W';
+                 // Save setting
+                 if(typeof saveSetting === 'function') saveSetting('pv-standby');
+             }
+          } catch(e) { console.warn('Auto-standby failed', e); }
+
           await ensureTempoDayMap(records);
           await analyzeFilesNow(files);
         }catch(e){ console.warn('Auto-run analysis failed', e); }
@@ -1770,4 +1785,65 @@
           if(btnCalc) btnCalc.click();
       });
   }
+
+  // Estimate Standby Power Logic
+  function calculateStandbyFromRecords(records) {
+    // Filter for daytime hours (e.g. 10am - 4pm) to estimate standby during PV production
+    const dayRecords = records.filter(r => {
+        const h = new Date(r.dateDebut).getHours();
+        return h >= 10 && h < 16;
+    });
+    
+    if(dayRecords.length === 0) throw new Error('Pas de données de jour');
+    
+    // Calculate power in Watts for each record
+    const powers = dayRecords.map(r => {
+        const durationMs = new Date(r.dateFin) - new Date(r.dateDebut);
+        const durationHours = durationMs / (1000 * 60 * 60);
+        if(durationHours <= 0) return 0;
+        const kw = Number(r.valeur) / durationHours;
+        return kw * 1000;
+    }).filter(p => p > 0).sort((a,b) => a - b);
+    
+    // Take 35th percentile to find a representative base load
+    // (Using 35th instead of 10th avoids being too pessimistic about fridge cycles, while still excluding cooking peaks)
+    const idx = Math.floor(powers.length * 0.35);
+    return Math.round(powers[idx]);
+  }
+
+  const btnEstimateStandby = document.getElementById('btn-estimate-standby');
+  if(btnEstimateStandby){
+    btnEstimateStandby.addEventListener('click', async ()=>{
+      const files = fileInput.files;
+      if(!files || files.length===0){ alert('Veuillez d\'abord charger un fichier de consommation.'); return; }
+      
+      const originalText = btnEstimateStandby.textContent;
+      btnEstimateStandby.textContent = '...';
+      
+      try {
+        const records = await parseFilesToRecords(files);
+        if(!records || records.length===0) throw new Error('Aucune donnée');
+        
+        const estimatedW = calculateStandbyFromRecords(records);
+        
+        const input = document.getElementById('pv-standby');
+        if(input) {
+            input.value = estimatedW;
+            // Trigger auto-update
+            input.dispatchEvent(new Event('change'));
+        }
+        
+        btnEstimateStandby.textContent = '✅ ' + estimatedW + 'W';
+        setTimeout(() => btnEstimateStandby.textContent = originalText, 2000);
+        
+      } catch(e) {
+        console.warn('Estimation talon échouée', e);
+        alert('Impossible d\'estimer le talon : ' + e.message);
+        btnEstimateStandby.textContent = originalText;
+      }
+    });
+  }
+  
+  // Expose for auto-run
+  window.calculateStandbyFromRecords = calculateStandbyFromRecords;
 })();

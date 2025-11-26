@@ -525,4 +525,15 @@ input:checked + .slider:before {
   color: var(--success);
 }
 
+/* Arrow Icon Rotation */
+.arrow-icon {
+  display: inline-block;
+  font-size: 1.2rem;
+  color: var(--text-secondary);
+}
+
+.arrow-icon.rotated {
+  transform: rotate(-180deg);
+}
+
 

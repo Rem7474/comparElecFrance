@@ -93,15 +93,7 @@
           <h4>Consommation Totale</h4>
           <div class="value" id="val-total-conso">- kWh</div>
         </div>
-        <div class="result-card" id="metric-base">
-          <h4>Coût Est. (Base)</h4>
-          <div class="value" id="val-total-cost">- €</div>
-        </div>
-        <div class="result-card" id="metric-pv">
-          <h4>Potentiel PV</h4>
-          <div class="value" id="val-pv-prod">- kWh</div>
-          <div class="sub" id="val-pv-info">Production estimée</div>
-        </div>
+        <!-- Removed Cost Est. and PV Potential metrics as requested -->
       </div>
 
       <!-- Charts Row 1 -->
@@ -149,7 +141,10 @@
             </div>
             <div class="form-group">
                 <label for="pv-standby">Talon de consommation (W)</label>
-                <input id="pv-standby" type="number" step="10" value="50" />
+                <div style="display:flex; gap:8px;">
+                    <input id="pv-standby" type="number" step="10" value="50" style="flex:1;" />
+                    <button id="btn-estimate-standby" class="btn btn-secondary" style="padding: 0 12px; font-size: 0.85rem;" title="Estimer à partir des données de jour (10h-16h)">Estimer</button>
+                </div>
                 <small class="text-muted">Consommation minimale permanente</small>
             </div>
             </div>
@@ -158,11 +153,11 @@
             <div class="mt-2" style="background: #f8f9fa; padding: 10px; border-radius: 4px;">
                 <div class="grid-2">
                     <div class="form-group" style="margin-bottom:0;">
-                        <label for="pv-cost-base" style="font-size:0.9rem;">Coût Fixe (Onduleur, Admin) €</label>
+                        <label for="pv-cost-base" style="font-size:0.9rem;">Coût Fixe (Fixation, Admin, Installation électrique) €</label>
                         <input id="pv-cost-base" type="number" value="500" step="50">
                     </div>
                     <div class="form-group" style="margin-bottom:0;">
-                        <label for="pv-cost-panel" style="font-size:0.9rem;">Coût par Panneau (400Wc) €</label>
+                        <label for="pv-cost-panel" style="font-size:0.9rem;">Coût par Panneau (400Wc) avec micro-onduleur €</label>
                         <input id="pv-cost-panel" type="number" value="200" step="10">
                     </div>
                 </div>
@@ -249,17 +244,20 @@
 
       <!-- Tempo Calendar -->
       <section class="card">
-        <div class="card-header">
+        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('tempo-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
           <h2 class="card-title">Calendrier TEMPO Reconstitué</h2>
+          <span class="arrow-icon" style="transition: transform 0.3s;">▼</span>
         </div>
         
-        <div id="tempo-loading" class="loading-container" style="display:none;">
-          <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
-          <div id="tempo-loading-text" class="loading-text">Chargement...</div>
-        </div>
+        <div id="tempo-content" class="hidden">
+            <div id="tempo-loading" class="loading-container" style="display:none;">
+            <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
+            <div id="tempo-loading-text" class="loading-text">Chargement...</div>
+            </div>
 
-        <div id="tempo-calendar-graph" class="tempo-calendar-wrapper mt-4"></div>
-        <div id="tempo-diagnostics" class="text-muted mt-4" style="font-size: 0.85rem;"></div>
+            <div id="tempo-calendar-graph" class="tempo-calendar-wrapper mt-4"></div>
+            <div id="tempo-diagnostics" class="text-muted mt-4" style="font-size: 0.85rem;"></div>
+        </div>
       </section>
 
       <!-- Hidden logs for debug/analysis -->
