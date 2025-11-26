@@ -514,6 +514,7 @@
     if (!isPvEnabled) {
         // Just trigger offers update
         setTimeout(()=>{ try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){} }, 100);
+        setTimeout(()=>{ try{ renderMonthlyBreakdown(); }catch(e){} }, 200);
         return;
     }
 
@@ -569,6 +570,7 @@
 
     // Trigger update of comparison charts (offers & monthly breakdown) to reflect new PV settings
     setTimeout(()=>{ try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){} }, 100);
+    setTimeout(()=>{ try{ renderMonthlyBreakdown(); }catch(e){} }, 200);
   });
 
   // Export computed report (JSON)
@@ -666,7 +668,7 @@
   }
 
   // Render monthly results into DOM and chart
-  document.getElementById('btn-monthly-breakdown').addEventListener('click', async ()=>{
+  async function renderMonthlyBreakdown(){
     const files = fileInput.files;
     if(!files || files.length===0){ alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.'); return; }
     appendAnalysisLog('Calcul ventilation mensuelle...');
@@ -677,7 +679,9 @@
     
     const isPvEnabled = document.getElementById('toggle-pv') ? document.getElementById('toggle-pv').checked : true;
     const data = computeMonthlyBreakdown(records);
-    const container = document.getElementById('monthly-results'); container.innerHTML = '';
+    const container = document.getElementById('monthly-results'); 
+    if(!container) return;
+    container.innerHTML = '';
     // build table
     const table = document.createElement('table'); table.style.width='100%'; table.style.borderCollapse='collapse';
     const hdr = document.createElement('tr');
@@ -781,7 +785,9 @@
       }
     }catch(e){ console.warn('Erreur rendu graphique économies PV mensuelles', e); }
     appendAnalysisLog('Ventilation mensuelle terminée.');
-  });
+  }
+  const btnMonthly = document.getElementById('btn-monthly-breakdown');
+  if(btnMonthly) btnMonthly.addEventListener('click', renderMonthlyBreakdown);
 
   // --- localStorage persistence for UI settings ---
   const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel'];
@@ -832,7 +838,7 @@
           await analyzeFilesNow(files);
         }catch(e){ console.warn('Auto-run analysis failed', e); }
         // trigger other handlers after analysis
-        setTimeout(()=>{ try{ const mb = document.getElementById('btn-monthly-breakdown'); if(mb) mb.click(); }catch(e){} }, 150);
+        setTimeout(()=>{ try{ renderMonthlyBreakdown(); }catch(e){} }, 150);
         setTimeout(()=>{ try{ const pv = document.getElementById('btn-calc-pv'); if(pv) pv.click(); }catch(e){} }, 300);
         setTimeout(()=>{ try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){} }, 450);
       })();
@@ -1068,6 +1074,16 @@
         else pvInfoEl.textContent = 'Production estimée';
     }
 
+    // Determine best and worst offer
+    const offerDetails = [
+        { id: 'base', name: 'Base', val: baseCostWithPV },
+        { id: 'hphc', name: 'HP/HC', val: hpCostWithPV },
+        { id: 'tempo', name: 'Tempo', val: tempoResWithPV.cost || Infinity }
+    ];
+    offerDetails.sort((a,b) => a.val - b.val);
+    const bestId = offerDetails[0].id;
+    const worstOffer = offerDetails[offerDetails.length - 1];
+
     // Generate Cards
     const createCard = (title, costNoPV, costPV, isBest) => {
         const div = document.createElement('div');
@@ -1098,6 +1114,14 @@
             </div>`;
         }
 
+        let bestOfferExtras = '';
+        if (isBest && worstOffer && worstOffer.val > costPV && worstOffer.val !== Infinity) {
+             const diff = worstOffer.val - costPV;
+             bestOfferExtras = `<div style="margin-top:8px; font-size:0.85rem; color:#155724; background-color:#d4edda; border:1px solid #c3e6cb; padding: 4px 8px; border-radius: 6px; text-align:center;">
+                Économie vs ${worstOffer.name} : <strong>${formatNumber(diff)} €</strong>
+             </div>`;
+        }
+
         div.innerHTML = `
             <div class="card-header-row">
                 <h3 class="offer-title">${title}</h3>
@@ -1107,19 +1131,11 @@
                 <span class="cost-main">${formatNumber(costPV)} €</span>
                 <span class="cost-sub">/ an</span>
             </div>
+            ${bestOfferExtras}
             ${pvRows}
         `;
         return div;
     };
-
-    // Determine best offer
-    const costs = [
-        { id: 'base', val: baseCostWithPV },
-        { id: 'hphc', val: hpCostWithPV },
-        { id: 'tempo', val: tempoResWithPV.cost }
-    ];
-    costs.sort((a,b) => a.val - b.val);
-    const bestId = costs[0].id;
 
     if(grid) {
         grid.appendChild(createCard('Base', baseCostNoPV, baseCostWithPV, bestId === 'base'));
@@ -1195,24 +1211,27 @@
                         Gain Net (${roiYearsTarget} ans):<br>
                         <span style="font-size:1.1rem; font-weight:bold; color:${bestCfg.gain > 0 ? 'var(--success)' : 'var(--danger)'}">${formatNumber(bestCfg.gain)} €</span>
                     </div>
-                    <button class="btn-apply-config" style="margin-top:10px; width:100%; padding:6px; background:#eee; border:1px solid #ccc; border-radius:4px; cursor:pointer; font-size:0.85rem;">
-                        Appliquer cette config
+                    <button class="btn-apply-config">
+                        <span>⚡</span> Appliquer cette config
                     </button>
                 `;
                 
                 const btn = div.querySelector('.btn-apply-config');
                 btn.addEventListener('click', () => {
                     const elKwp = document.getElementById('pv-kwp');
-                    if(elKwp) elKwp.value = bestCfg.kwp.toFixed(1);
-                    // Trigger recalculation
-                    const btnCalc = document.getElementById('btn-calc-pv');
-                    if(btnCalc) btnCalc.click();
-                    // Scroll to top or give feedback
-                    btn.textContent = 'Config appliquée !';
-                    btn.style.background = '#d4edda';
+                    if(elKwp) {
+                        elKwp.value = bestCfg.kwp.toFixed(1);
+                        // Trigger change event to update simulation automatically
+                        elKwp.dispatchEvent(new Event('change'));
+                    }
+                    
+                    // Visual feedback
+                    btn.innerHTML = '<span>✅</span> Config appliquée !';
+                    btn.classList.add('applied');
+                    
                     setTimeout(() => { 
-                        btn.textContent = 'Appliquer cette config'; 
-                        btn.style.background = '#eee';
+                        btn.innerHTML = '<span>⚡</span> Appliquer cette config'; 
+                        btn.classList.remove('applied');
                     }, 2000);
                 });
 
@@ -1674,6 +1693,8 @@
         try {
             const btnCompare = document.getElementById('btn-compare-offers');
             if (btnCompare) btnCompare.click();
+            // Also update monthly breakdown to reflect PV toggle state
+            if (typeof renderMonthlyBreakdown === 'function') renderMonthlyBreakdown();
         } catch(e) {}
     }
   }

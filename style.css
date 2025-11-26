@@ -192,6 +192,43 @@ input:focus, select:focus, textarea:focus {
 
 .btn-group { display: flex; gap: var(--spacing-sm); flex-wrap: wrap; }
 
+/* Apply Config Button */
+.btn-apply-config {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-apply-config:hover {
+  background-color: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-apply-config:active {
+  transform: scale(0.98);
+}
+
+.btn-apply-config.applied {
+  background-color: var(--success);
+  color: white;
+  border-color: var(--success);
+  cursor: default;
+}
+
 /* Result Cards (Enhanced) */
 .result-card {
   background: var(--bg-card);
@@ -380,5 +417,56 @@ table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 th, td { padding: 12px; border-bottom: 1px solid var(--border-color); text-align: left; }
 th { font-weight: 600; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; }
 tr:last-child td { border-bottom: none; }
+
+/* Toggle Switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  margin-right: 8px;
+}
+
+.switch input { 
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 22px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--primary);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--primary);
+}
+
+input:checked + .slider:before {
+  transform: translateX(18px);
+}
 
 
