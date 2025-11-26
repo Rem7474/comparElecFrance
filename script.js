@@ -8,6 +8,46 @@
   const fileInput = document.getElementById('file-input');
   const btnGenerateCsv = document.getElementById('btn-generate-csv');
 
+  // File Drop Zone UI Logic
+  const dropZone = document.getElementById('drop-zone');
+  const dropZoneText = document.getElementById('drop-zone-text');
+  const dropZoneSub = document.getElementById('drop-zone-subtext');
+  
+  if(fileInput && dropZone){
+    fileInput.addEventListener('change', ()=>{
+      if(fileInput.files && fileInput.files.length > 0){
+        dropZone.classList.add('has-file');
+        dropZoneText.textContent = fileInput.files[0].name;
+        dropZoneSub.textContent = 'Fichier prêt pour l\'analyse';
+        const icon = dropZone.querySelector('.file-drop-zone-icon');
+        if(icon) icon.textContent = '✅';
+      } else {
+        dropZone.classList.remove('has-file');
+        dropZoneText.textContent = 'Cliquez ou glissez le fichier ici';
+        dropZoneSub.textContent = 'Format accepté : .json (Enedis)';
+        const icon = dropZone.querySelector('.file-drop-zone-icon');
+        if(icon) icon.textContent = '📂';
+      }
+    });
+
+    // Drag and drop visual effects
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+      }, false);
+    });
+  }
+
   // Theme handling
   const btnThemeToggle = document.getElementById('btn-theme-toggle');
   function applyTheme(isDark) {
