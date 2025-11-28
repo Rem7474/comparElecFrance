@@ -24,7 +24,7 @@
       } else {
         dropZone.classList.remove('has-file');
         dropZoneText.textContent = 'Cliquez ou glissez le fichier ici';
-        dropZoneSub.textContent = 'Format accepté : .json (Enedis)';
+        dropZoneSub.textContent = 'Formats acceptés : .json (Enedis) ou .csv';
         const icon = dropZone.querySelector('.file-drop-zone-icon');
         if(icon) icon.textContent = '📂';
       }
@@ -249,8 +249,21 @@
           if(Array.isArray(donnees)){
             for(const rec of donnees){ const val = Number(rec.valeur); if(isNaN(val)) continue; records.push({dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val}); }
           } else { appendAnalysisLog(`Aucune donnée horaire trouvée dans ${f.name}`); }
+        } else if(name.endsWith('.csv') || (f.type && f.type.toLowerCase().includes('csv'))){
+          const txt = await f.text();
+          try{
+            if(typeof window.csvToEnedisJson !== 'function') throw new Error('convertisseur CSV indisponible');
+            const j = window.csvToEnedisJson(txt);
+            const donnees = (((j||{}).cons||{}).aggregats||{}).heure && (((j||{}).cons||{}).aggregats||{}).heure.donnees;
+            if(Array.isArray(donnees)){
+              for(const rec of donnees){ const val = Number(rec.valeur); if(isNaN(val)) continue; records.push({dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val}); }
+              appendAnalysisLog(`Converti depuis CSV: ${donnees.length} enregistrements`);
+            } else {
+              appendAnalysisLog(`CSV non reconnu: aucune donnée horaire trouvée dans ${f.name}`);
+            }
+          }catch(e){ appendAnalysisLog(`Erreur conversion CSV (${f.name}): ${e && e.message ? e.message : e}`); }
         } else {
-          appendAnalysisLog(`${f.name} ignoré (JSON uniquement).`);
+          appendAnalysisLog(`${f.name} ignoré (formats supportés: JSON/CSV).`);
         }
       }catch(err){ appendAnalysisLog('Erreur lecture ' + f.name + ': ' + err.message); }
     }

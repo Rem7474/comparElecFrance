@@ -78,8 +78,8 @@
       <div class="file-drop-zone" id="drop-zone">
         <span class="file-drop-zone-icon">📂</span>
         <div class="file-drop-zone-text" id="drop-zone-text">Cliquez ou glissez le fichier ici</div>
-        <div class="file-drop-zone-subtext" id="drop-zone-subtext">Format accepté : .json (Enedis)</div>
-        <input id="file-input" type="file" accept=".json" />
+            <div class="file-drop-zone-subtext" id="drop-zone-subtext">Formats acceptés : .json (Enedis) ou .csv</div>
+            <input id="file-input" type="file" accept=".json,.csv" />
       </div>
       <div id="merge-log" class="log-container hidden"></div>
     </section>
@@ -277,7 +277,7 @@
       <small>ComparatifElec — Outil d'analyse locale (Client-side only)</small>
     </footer>
   </div>
-
+  <script src="csvToEnedisJson.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
