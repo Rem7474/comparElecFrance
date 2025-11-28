@@ -716,13 +716,13 @@
       const totalKwh = recs.reduce((s,r)=> s + (Number(r.valeur)||0), 0);
       // determine month index
       const parts = k.split('-'); const monthIdx = (parts.length>1)? (Number(parts[1]) - 1) : 0;
-      const monthPV = annualProduction * (monthlySolarWeights[monthIdx] || (1/12));
-  // estimate month self-consumption either from manual percent or from standby-based simulation
+        const monthPV = annualProduction * (monthlySolarWeights[monthIdx] || (1/12));
+      // estimate month self-consumption either from manual percent or from standby-based simulation
   const standbyW = Number((document.getElementById('pv-standby')||{}).value) || 0;
   const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW);
-  const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh);
-  const manualMonthSelf = Math.min(monthPV * (selfPct/100), totalKwh);
-  const monthSelf = Math.max(estimatedMonthSelf, manualMonthSelf); // prefer the higher estimate (user choice can override)
+      const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
+      const manualMonthSelf = Math.min(monthPV * (selfPct/100), totalKwh, monthPV);
+      const monthSelf = Math.max(estimatedMonthSelf, manualMonthSelf); // capped by totalKwh and monthPV
 
       // costs without PV
   const baseEnergy = computeCostBaseForRecords(recs);
@@ -984,15 +984,15 @@
       const info = months[k]; const daysCount = Math.max(1, info.days.size); const mpv = monthPV[k] || 0; // kWh produit dans le mois
       for(const rec of info.records){
         const d = new Date(rec.dateDebut); const h = d.getHours(); const demand = Number(rec.valeur) || 0;
-        // production disponible sur cette occurrence horaire (kWh)
-        const pvForHourInstance = (pvNorm[h] * mpv) / daysCount;
-        // allouer à la veille d'abord
-        const allocateToStandby = Math.min(pvForHourInstance, standbyPerHourKwh);
-        let remainingPV = pvForHourInstance - allocateToStandby;
-        // demande restante après la prise en compte de la veille
-        const remainingDemand = Math.max(0, demand - standbyPerHourKwh);
-        const allocateToOther = Math.min(remainingPV, remainingDemand);
-  const allocated = allocateToStandby + allocateToOther;
+          // production disponible sur cette occurrence horaire (kWh)
+          const pvForHourInstance = (pvNorm[h] * mpv) / daysCount;
+          // allouer à la veille d'abord, mais ne jamais dépasser la demande réelle
+          const allocateToStandby = Math.min(pvForHourInstance, standbyPerHourKwh, demand);
+          let remainingPV = pvForHourInstance - allocateToStandby;
+          // demande restante après la prise en compte effective de la veille
+          const remainingDemand = Math.max(0, demand - allocateToStandby);
+          const allocateToOther = Math.min(remainingPV, remainingDemand);
+        const allocated = Math.min(pvForHourInstance, allocateToStandby + allocateToOther);
   selfConsumed += allocated; consumedByHour[h] += allocated; exported += Math.max(0, pvForHourInstance - allocated);
   if(rec && rec.dateDebut){ const key = String(rec.dateDebut); allocatedByTimestamp[key] = (allocatedByTimestamp[key] || 0) + allocated; }
       }
