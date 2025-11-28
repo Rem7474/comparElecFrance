@@ -316,7 +316,34 @@
       for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); if(isHourHC(h, hcRange)) hcTotal += v; else hpTotal += v; }
       const canvas = document.getElementById('hp-hc-pie'); if(!canvas) return;
       const ctx = canvas.getContext('2d'); if(window.hpHcPieChart){ window.hpHcPieChart.destroy(); window.hpHcPieChart = null; }
-      window.hpHcPieChart = new Chart(ctx, { type: 'pie', data: { labels: ['HP','HC'], datasets: [{ data: [hpTotal, hcTotal], backgroundColor: ['#4e79a7','#f28e2b'] }] }, options:{ responsive:true } });
+      const total = hpTotal + hcTotal;
+      const hpPct = total > 0 ? Math.round((hpTotal / total) * 1000) / 10 : 0; // one decimal
+      const hcPct = total > 0 ? Math.round((hcTotal / total) * 1000) / 10 : 0;
+      window.hpHcPieChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: [`HP (${hpPct}%)`, `HC (${hcPct}%)`],
+          datasets: [{ data: [hpTotal, hcTotal], backgroundColor: ['#4e79a7','#f28e2b'] }]
+        },
+        options:{
+          responsive:true,
+          plugins:{
+            tooltip:{
+              callbacks:{
+                label: (ctx)=>{
+                  try{
+                    const val = Number(ctx.parsed) || 0;
+                    const tot = (ctx.dataset.data||[]).reduce((a,b)=> a + (Number(b)||0), 0);
+                    const pct = tot > 0 ? (val / tot * 100) : 0;
+                    const pctTxt = `${pct.toFixed(1)}%`;
+                    return `${ctx.label}: ${formatNumber(val)} kWh (${pctTxt})`;
+                  }catch(e){ return ctx.label; }
+                }
+              }
+            }
+          }
+        }
+      });
     }catch(e){ console.warn('Erreur rendu HP/HC pie', e); }
   }
 
@@ -824,6 +851,7 @@
       if(sc){
         if (isPvEnabled) {
             sc.style.display = 'block';
+          try{ if(sc.parentElement) sc.parentElement.style.display = ''; }catch(e){}
             const ctxs = sc.getContext('2d');
             if(window.monthlySavingsChart){ window.monthlySavingsChart.destroy(); window.monthlySavingsChart = null; }
             window.monthlySavingsChart = new Chart(ctxs, {
@@ -840,6 +868,7 @@
             });
         } else {
             sc.style.display = 'none';
+          try{ if(sc.parentElement) sc.parentElement.style.display = 'none'; }catch(e){}
         }
       }
     }catch(e){ console.warn('Erreur rendu graphique économies PV mensuelles', e); }
