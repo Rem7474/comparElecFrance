@@ -552,3 +552,14 @@ input:checked + .slider:before {
 }
 
 
+
+/* Print Styles */
+@media print {
+  /* Masquer les étapes d'import (parties 1 et 2) */
+  #step-1-panel,
+  #step-2-panel {
+    display: none !important;
+  }
+}
+
+

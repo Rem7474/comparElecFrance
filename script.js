@@ -24,7 +24,7 @@
       } else {
         dropZone.classList.remove('has-file');
         dropZoneText.textContent = 'Cliquez ou glissez le fichier ici';
-        dropZoneSub.textContent = 'Format accepté : .json (Enedis)';
+        dropZoneSub.textContent = 'Formats acceptés : .json (Enedis) ou .csv';
         const icon = dropZone.querySelector('.file-drop-zone-icon');
         if(icon) icon.textContent = '📂';
       }
@@ -249,8 +249,21 @@
           if(Array.isArray(donnees)){
             for(const rec of donnees){ const val = Number(rec.valeur); if(isNaN(val)) continue; records.push({dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val}); }
           } else { appendAnalysisLog(`Aucune donnée horaire trouvée dans ${f.name}`); }
+        } else if(name.endsWith('.csv') || (f.type && f.type.toLowerCase().includes('csv'))){
+          const txt = await f.text();
+          try{
+            if(typeof window.csvToEnedisJson !== 'function') throw new Error('convertisseur CSV indisponible');
+            const j = window.csvToEnedisJson(txt);
+            const donnees = (((j||{}).cons||{}).aggregats||{}).heure && (((j||{}).cons||{}).aggregats||{}).heure.donnees;
+            if(Array.isArray(donnees)){
+              for(const rec of donnees){ const val = Number(rec.valeur); if(isNaN(val)) continue; records.push({dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val}); }
+              appendAnalysisLog(`Converti depuis CSV: ${donnees.length} enregistrements`);
+            } else {
+              appendAnalysisLog(`CSV non reconnu: aucune donnée horaire trouvée dans ${f.name}`);
+            }
+          }catch(e){ appendAnalysisLog(`Erreur conversion CSV (${f.name}): ${e && e.message ? e.message : e}`); }
         } else {
-          appendAnalysisLog(`${f.name} ignoré (JSON uniquement).`);
+          appendAnalysisLog(`${f.name} ignoré (formats supportés: JSON/CSV).`);
         }
       }catch(err){ appendAnalysisLog('Erreur lecture ' + f.name + ': ' + err.message); }
     }
@@ -303,36 +316,33 @@
       for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); if(isHourHC(h, hcRange)) hcTotal += v; else hpTotal += v; }
       const canvas = document.getElementById('hp-hc-pie'); if(!canvas) return;
       const ctx = canvas.getContext('2d'); if(window.hpHcPieChart){ window.hpHcPieChart.destroy(); window.hpHcPieChart = null; }
-      
-      // Enable datalabels plugin if loaded
-      const plugins = [];
-      if(typeof ChartDataLabels !== 'undefined') plugins.push(ChartDataLabels);
-
-      window.hpHcPieChart = new Chart(ctx, { 
-        type: 'pie', 
-        plugins: plugins,
-        data: { 
-          labels: ['HP','HC'], 
-          datasets: [{ 
-            data: [hpTotal, hcTotal], 
-            backgroundColor: ['#4e79a7','#f28e2b'] 
-          }] 
-        }, 
-        options:{ 
+      const total = hpTotal + hcTotal;
+      const hpPct = total > 0 ? Math.round((hpTotal / total) * 1000) / 10 : 0; // one decimal
+      const hcPct = total > 0 ? Math.round((hcTotal / total) * 1000) / 10 : 0;
+      window.hpHcPieChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: [`HP (${hpPct}%)`, `HC (${hcPct}%)`],
+          datasets: [{ data: [hpTotal, hcTotal], backgroundColor: ['#4e79a7','#f28e2b'] }]
+        },
+        options:{
           responsive:true,
-          plugins: {
-            legend: { position: 'bottom' },
-            datalabels: {
-              color: '#fff',
-              font: { weight: 'bold' },
-              formatter: (value, ctx) => {
-                const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
-                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
-                return percentage;
+          plugins:{
+            tooltip:{
+              callbacks:{
+                label: (ctx)=>{
+                  try{
+                    const val = Number(ctx.parsed) || 0;
+                    const tot = (ctx.dataset.data||[]).reduce((a,b)=> a + (Number(b)||0), 0);
+                    const pct = tot > 0 ? (val / tot * 100) : 0;
+                    const pctTxt = `${pct.toFixed(1)}%`;
+                    return `${ctx.label}: ${formatNumber(val)} kWh (${pctTxt})`;
+                  }catch(e){ return ctx.label; }
+                }
               }
             }
           }
-        } 
+        }
       });
     }catch(e){ console.warn('Erreur rendu HP/HC pie', e); }
   }
@@ -360,7 +370,7 @@
       appendAnalysisLog('Analyse terminée.');
       try{
         const tempoMap = await ensureTempoDayMap(records);
-        try{ renderTempoCalendarGraph(tempoMap); }catch(e){}
+        try{ const dailyCostMap = computeDailyTempoCostMap(records, tempoMap); renderTempoCalendarGraph(tempoMap, dailyCostMap); }catch(e){}
         // ... existing tempo diagnostics ...
       }catch(e){ console.warn('Erreur génération calendrier TEMPO automatique', e); }
       
@@ -516,39 +526,45 @@
       try{ if(__tempoDayMapCache && typeof __tempoDayMapCache === 'object'){ dayMap = __tempoDayMapCache; } else { dayMap = generateTempoCalendarAlgorithm(records); } }catch(e){ dayMap = null; }
     }
 
+    // Helper: TEMPO day segmentation (starts at 06:00)
+    function getTempoContextForHour(dateStr, hour){
+      // Returns { bucketDateStr, colorLetter, isHC }
+      const d = new Date(dateStr);
+      function ymd(dt){ return dt.toISOString().slice(0,10); }
+      if(hour < 6){
+        const prev = new Date(d); prev.setDate(prev.getDate()-1);
+        const bucket = ymd(prev);
+        const entry = dayMap[bucket] || 'B';
+        const col = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+        return { bucketDateStr: bucket, colorLetter: col, isHC: true };
+      }
+      if(hour >= 22){
+        const bucket = dateStr;
+        const entry = dayMap[bucket] || 'B';
+        const col = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+        return { bucketDateStr: bucket, colorLetter: col, isHC: true };
+      }
+      // 06:00..21:59 => HP of current day
+      const bucket = dateStr;
+      const entry = dayMap[bucket] || 'B';
+      const col = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+      return { bucketDateStr: bucket, colorLetter: col, isHC: false };
+    }
+
     if(dayMap){
       // affichage automatique déjà géré lors de l'analyse
 
       for(const r of records){
         const dateStr = (r.dateDebut||'').slice(0,10);
-        const entry = dayMap[dateStr] || dayMap[dateStr.replace(/\//g,'-')] || 'B';
-        let color = 'B';
-        if(typeof entry === 'string') color = entry.toUpperCase();
-        else if(entry && typeof entry === 'object') color = (entry.color||'B').toUpperCase();
-
-        const v = Number(r.valeur)||0;
         const h = new Date(r.dateDebut).getHours();
-
-        // determine if this hour is HC for the day
-        let isHC = false;
-        if(entry && typeof entry === 'object'){
-          if(Array.isArray(entry.hours)){
-            // hours can be array of numbers (HC hours) or boolean flags
-            if(entry.hours.length === 24){ isHC = Boolean(entry.hours[h]); }
-            else { isHC = entry.hours.includes(h); }
-          } else if(entry.hcRange){ isHC = isHourHC(h, entry.hcRange); }
-        }
-        // fallback to global hcRange
-        if(!entry || (entry && typeof entry === 'string') || (entry && typeof entry === 'object' && !entry.hcRange && !entry.hours)){
-          const hcRange = (DEFAULTS.hp && DEFAULTS.hp.hcRange) || '22-06';
-          isHC = isHourHC(h, hcRange);
-        }
-
-        const rates = getRatesForColor(color, entry);
-        const applied = isHC ? rates.hc : rates.hp;
+        const ctx = getTempoContextForHour(dateStr, h);
+        const entryForBucket = dayMap[ctx.bucketDateStr] || 'B';
+        const rates = getRatesForColor(ctx.colorLetter, entryForBucket);
+        const applied = ctx.isHC ? rates.hc : rates.hp;
+        const v = Number(r.valeur)||0;
         cost += v * applied;
-        if(color === 'R') cr += v * applied;
-        else if(color === 'W') cw += v * applied;
+        if(ctx.colorLetter === 'R') cr += v * applied;
+        else if(ctx.colorLetter === 'W') cw += v * applied;
         else cb += v * applied;
       }
 
@@ -700,13 +716,13 @@
       const totalKwh = recs.reduce((s,r)=> s + (Number(r.valeur)||0), 0);
       // determine month index
       const parts = k.split('-'); const monthIdx = (parts.length>1)? (Number(parts[1]) - 1) : 0;
-      const monthPV = annualProduction * (monthlySolarWeights[monthIdx] || (1/12));
-  // estimate month self-consumption either from manual percent or from standby-based simulation
+        const monthPV = annualProduction * (monthlySolarWeights[monthIdx] || (1/12));
+      // estimate month self-consumption either from manual percent or from standby-based simulation
   const standbyW = Number((document.getElementById('pv-standby')||{}).value) || 0;
   const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW);
-  const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh);
-  const manualMonthSelf = Math.min(monthPV * (selfPct/100), totalKwh);
-  const monthSelf = Math.max(estimatedMonthSelf, manualMonthSelf); // prefer the higher estimate (user choice can override)
+      const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
+      const manualMonthSelf = Math.min(monthPV * (selfPct/100), totalKwh, monthPV);
+      const monthSelf = Math.max(estimatedMonthSelf, manualMonthSelf); // capped by totalKwh and monthPV
 
       // costs without PV
   const baseEnergy = computeCostBaseForRecords(recs);
@@ -835,6 +851,7 @@
       if(sc){
         if (isPvEnabled) {
             sc.style.display = 'block';
+          try{ if(sc.parentElement) sc.parentElement.style.display = ''; }catch(e){}
             const ctxs = sc.getContext('2d');
             if(window.monthlySavingsChart){ window.monthlySavingsChart.destroy(); window.monthlySavingsChart = null; }
             window.monthlySavingsChart = new Chart(ctxs, {
@@ -851,6 +868,7 @@
             });
         } else {
             sc.style.display = 'none';
+          try{ if(sc.parentElement) sc.parentElement.style.display = 'none'; }catch(e){}
         }
       }
     }catch(e){ console.warn('Erreur rendu graphique économies PV mensuelles', e); }
@@ -966,15 +984,15 @@
       const info = months[k]; const daysCount = Math.max(1, info.days.size); const mpv = monthPV[k] || 0; // kWh produit dans le mois
       for(const rec of info.records){
         const d = new Date(rec.dateDebut); const h = d.getHours(); const demand = Number(rec.valeur) || 0;
-        // production disponible sur cette occurrence horaire (kWh)
-        const pvForHourInstance = (pvNorm[h] * mpv) / daysCount;
-        // allouer à la veille d'abord
-        const allocateToStandby = Math.min(pvForHourInstance, standbyPerHourKwh);
-        let remainingPV = pvForHourInstance - allocateToStandby;
-        // demande restante après la prise en compte de la veille
-        const remainingDemand = Math.max(0, demand - standbyPerHourKwh);
-        const allocateToOther = Math.min(remainingPV, remainingDemand);
-  const allocated = allocateToStandby + allocateToOther;
+          // production disponible sur cette occurrence horaire (kWh)
+          const pvForHourInstance = (pvNorm[h] * mpv) / daysCount;
+          // allouer à la veille d'abord, mais ne jamais dépasser la demande réelle
+          const allocateToStandby = Math.min(pvForHourInstance, standbyPerHourKwh, demand);
+          let remainingPV = pvForHourInstance - allocateToStandby;
+          // demande restante après la prise en compte effective de la veille
+          const remainingDemand = Math.max(0, demand - allocateToStandby);
+          const allocateToOther = Math.min(remainingPV, remainingDemand);
+        const allocated = Math.min(pvForHourInstance, allocateToStandby + allocateToOther);
   selfConsumed += allocated; consumedByHour[h] += allocated; exported += Math.max(0, pvForHourInstance - allocated);
   if(rec && rec.dateDebut){ const key = String(rec.dateDebut); allocatedByTimestamp[key] = (allocatedByTimestamp[key] || 0) + allocated; }
       }
@@ -1656,12 +1674,15 @@
     // Re-rendre le calendrier s'il est affiché (permet de refléter les vraies couleurs après récupération API)
     try{
       const cont = document.getElementById('tempo-calendar-graph');
-      if(cont) renderTempoCalendarGraph(finalMap);
+      if(cont){
+        try{ const dailyCostMap = computeDailyTempoCostMap(records, finalMap); renderTempoCalendarGraph(finalMap, dailyCostMap); }
+        catch(err){ renderTempoCalendarGraph(finalMap); }
+      }
     }catch(e){}
     return finalMap;
   }
 
-  // Render a TEMPO calendar visualization: month by month grid with colored bubbles and tooltip showing date + representative price
+  // Render a TEMPO calendar visualization: month by month grid with colored bubbles and tooltip showing date + representative price + daily cost
   function mapColorToHex(col){
     if(!col) return '#dddddd';
     const c = String(col).toUpperCase();
@@ -1686,13 +1707,69 @@
     return (Number(rates.hp) + Number(rates.hc)) / 2;
   }
 
+  // Build per-day cost map (€/jour) for TEMPO with segmentation (0-6 prev day color, 6-22 HP, 22-24 HC)
+  function computeDailyTempoCostMap(records, dayMap){
+    const out = {};
+    function colorLetterToKey(letter){
+      if(!letter) return 'blue';
+      const L = String(letter).toUpperCase(); if(L === 'B') return 'blue'; if(L === 'W') return 'white'; if(L === 'R') return 'red'; return String(letter).toLowerCase();
+    }
+    function getRates(entryOrColor, color){
+      const entry = typeof entryOrColor === 'object' ? entryOrColor : null;
+      if(entry && entry.rates && typeof entry.rates === 'object'){
+        return { hp: Number(entry.rates.hp)||0, hc: Number(entry.rates.hc)||0 };
+      }
+      const key = colorLetterToKey(color);
+      const def = DEFAULTS.tempo && DEFAULTS.tempo[key];
+      if(def && typeof def === 'object'){ return { hp: Number(def.hp)||0, hc: Number(def.hc)||0 }; }
+      const single = (DEFAULTS.tempo && DEFAULTS.tempo[key]) || 0;
+      return { hp: Number(single)||0, hc: Number(single)||0 };
+    }
+    function ymd(d){ return d.toISOString().slice(0,10); }
+    for(const r of records){
+      const dt = new Date(r.dateDebut);
+      const h = dt.getHours();
+      const dateStr = ymd(dt);
+      // Determine bucket day and color with TEMPO segmentation
+      let bucketDateStr, colorLetter, isHC;
+      if(h < 6){
+        const prev = new Date(dt); prev.setDate(prev.getDate()-1);
+        bucketDateStr = ymd(prev);
+        const entryPrev = dayMap[bucketDateStr] || 'B';
+        colorLetter = (typeof entryPrev === 'string') ? entryPrev.toUpperCase() : ((entryPrev && entryPrev.color) ? String(entryPrev.color).toUpperCase() : 'B');
+        isHC = true;
+      } else if(h >= 22){
+        bucketDateStr = dateStr;
+        const entryCur = dayMap[bucketDateStr] || 'B';
+        colorLetter = (typeof entryCur === 'string') ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
+        isHC = true;
+      } else {
+        bucketDateStr = dateStr;
+        const entryCur = dayMap[bucketDateStr] || 'B';
+        colorLetter = (typeof entryCur === 'string') ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
+        isHC = false; // HP 6-22
+      }
+      const entryForBucket = dayMap[bucketDateStr] || 'B';
+      const rates = getRates(entryForBucket, colorLetter);
+      const applied = isHC ? rates.hc : rates.hp;
+      const v = Number(r.valeur)||0;
+      if(!out[bucketDateStr]) out[bucketDateStr] = { energy: 0, cost: 0, hpCost: 0, hcCost: 0, hpEnergy: 0, hcEnergy: 0, color: colorLetter };
+      out[bucketDateStr].energy += v;
+      out[bucketDateStr].cost += v * applied;
+      if(isHC){ out[bucketDateStr].hcCost += v * applied; out[bucketDateStr].hcEnergy += v; }
+      else { out[bucketDateStr].hpCost += v * applied; out[bucketDateStr].hpEnergy += v; }
+      out[bucketDateStr].color = colorLetter;
+    }
+    return out;
+  }
+
   function createTooltip(){
     let t = document.getElementById('tempo-tooltip');
     if(t) return t;
     t = document.createElement('div'); t.id = 'tempo-tooltip'; t.className = 'tempo-tooltip'; document.body.appendChild(t); return t;
   }
 
-  function renderTempoCalendarGraph(dayMap){
+  function renderTempoCalendarGraph(dayMap, dailyCostMap){
     const container = document.getElementById('tempo-calendar-graph'); if(!container){ console.warn('tempo-calendar-graph container not found'); return; }
     container.innerHTML = '';
     function showError(msg){ container.innerHTML = `<div style="color:#b00020;background:#fff0f0;padding:8px;border-radius:6px;border:1px solid #f3c2c2">Erreur affichage calendrier: ${String(msg)}</div>`; }
@@ -1728,7 +1805,23 @@
         // compute representative price
         const price = getRepresentativePriceForEntry(entry);
         // tooltip handlers
-        dayEl.addEventListener('mouseenter', (ev)=>{ tooltip.style.display = 'block'; tooltip.innerHTML = `<strong>${dStr}</strong><br/>Couleur: ${colorKey}<br/>Prix rep.: ${price.toFixed(4)} €/kWh`; });
+        dayEl.addEventListener('mouseenter', (ev)=>{
+          tooltip.style.display = 'block';
+          const info = dailyCostMap && dailyCostMap[dStr];
+          const costTxt = info && typeof info.cost === 'number' ? `${info.cost.toFixed(2)} €` : '-';
+          const energyTxt = info && typeof info.energy === 'number' ? `${info.energy.toFixed(2)} kWh` : '-';
+          const hpCostTxt = info && typeof info.hpCost === 'number' ? `${info.hpCost.toFixed(2)} €` : '-';
+          const hcCostTxt = info && typeof info.hcCost === 'number' ? `${info.hcCost.toFixed(2)} €` : '-';
+          const hpEnergyTxt = info && typeof info.hpEnergy === 'number' ? `${info.hpEnergy.toFixed(2)} kWh` : '-';
+          const hcEnergyTxt = info && typeof info.hcEnergy === 'number' ? `${info.hcEnergy.toFixed(2)} kWh` : '-';
+          tooltip.innerHTML = `
+            <strong>${dStr}</strong><br/>
+            Couleur: ${colorKey}<br/>
+            Prix rep.: ${price.toFixed(4)} €/kWh<br/>
+            Coût jour: ${costTxt} — Conso jour: ${energyTxt}<br/>
+            HP: ${hpCostTxt} / ${hpEnergyTxt} &nbsp;|&nbsp; HC: ${hcCostTxt} / ${hcEnergyTxt}
+          `;
+        });
         dayEl.addEventListener('mousemove', (ev)=>{ const pad=12; tooltip.style.left = (ev.clientX + pad) + 'px'; tooltip.style.top = (ev.clientY + pad) + 'px'; });
         dayEl.addEventListener('mouseleave', ()=>{ tooltip.style.display = 'none'; });
         grid.appendChild(dayEl);
