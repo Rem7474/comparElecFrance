@@ -536,4 +536,19 @@ input:checked + .slider:before {
   transform: rotate(-180deg);
 }
 
+/* Secondary Panel (for nested settings) */
+.panel-secondary {
+  background-color: var(--bg-hover);
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: var(--spacing-sm);
+}
+
+.panel-secondary .separator {
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+  margin-top: var(--spacing-sm);
+  margin-bottom: 0;
+}
+
 

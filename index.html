@@ -6,6 +6,7 @@
   <title>ComparatifElec - Analyse & Simulation</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
 <body>
   <div class="app-container">
@@ -150,7 +151,7 @@
             </div>
 
             <!-- Cost Parameters for Optimization -->
-            <div class="mt-2" style="background: #f8f9fa; padding: 10px; border-radius: 4px;">
+            <div class="panel-secondary">
                 <div class="grid-2">
                     <div class="form-group" style="margin-bottom:0;">
                         <label for="pv-cost-base" style="font-size:0.9rem;">Coût Fixe (Fixation, Admin, Installation électrique) €</label>
@@ -161,7 +162,7 @@
                         <input id="pv-cost-panel" type="number" value="200" step="10">
                     </div>
                 </div>
-                <div class="form-group mt-2" style="margin-bottom:0; border-top:1px solid #eee; padding-top:8px;">
+                <div class="form-group separator">
                     <label for="pv-roi-years" style="font-size:0.9rem; display:flex; justify-content:space-between;">
                         <span>Durée cible rentabilité</span>
                         <span id="pv-roi-display" style="font-weight:bold; color:var(--primary);">15 ans</span>

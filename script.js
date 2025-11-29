@@ -298,12 +298,42 @@
   // render a pie chart showing HP vs HC consumption share
   function renderHpHcPie(records){
     try{
-  const hcRange = (DEFAULTS.hp && DEFAULTS.hp.hcRange) || '22-06';
+      const hcRange = (DEFAULTS.hp && DEFAULTS.hp.hcRange) || '22-06';
       let hpTotal = 0, hcTotal = 0;
       for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); if(isHourHC(h, hcRange)) hcTotal += v; else hpTotal += v; }
       const canvas = document.getElementById('hp-hc-pie'); if(!canvas) return;
       const ctx = canvas.getContext('2d'); if(window.hpHcPieChart){ window.hpHcPieChart.destroy(); window.hpHcPieChart = null; }
-      window.hpHcPieChart = new Chart(ctx, { type: 'pie', data: { labels: ['HP','HC'], datasets: [{ data: [hpTotal, hcTotal], backgroundColor: ['#4e79a7','#f28e2b'] }] }, options:{ responsive:true } });
+      
+      // Enable datalabels plugin if loaded
+      const plugins = [];
+      if(typeof ChartDataLabels !== 'undefined') plugins.push(ChartDataLabels);
+
+      window.hpHcPieChart = new Chart(ctx, { 
+        type: 'pie', 
+        plugins: plugins,
+        data: { 
+          labels: ['HP','HC'], 
+          datasets: [{ 
+            data: [hpTotal, hcTotal], 
+            backgroundColor: ['#4e79a7','#f28e2b'] 
+          }] 
+        }, 
+        options:{ 
+          responsive:true,
+          plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+              color: '#fff',
+              font: { weight: 'bold' },
+              formatter: (value, ctx) => {
+                const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
+                return percentage;
+              }
+            }
+          }
+        } 
+      });
     }catch(e){ console.warn('Erreur rendu HP/HC pie', e); }
   }
 
