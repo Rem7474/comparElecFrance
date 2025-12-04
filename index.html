@@ -183,6 +183,23 @@
         </div>
       </section>
 
+      <!-- Paramètres (contractuels) -->
+      <section class="card mb-4">
+        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('contract-params-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
+          <h2 class="card-title">Paramètres</h2>
+          <span class="arrow-icon" style="transition: transform 0.3s;">▼</span>
+        </div>
+        <div id="contract-params-content" class="hidden">
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="param-hphc-hcRange">Heures Creuses (Contrat HP/HC) — format HH-HH</label>
+              <input id="param-hphc-hcRange" type="text" value="22-06" placeholder="ex: 22-06" />
+              <small class="text-muted">Exemples: 22-06, 23-07, 12-14. Les HC couvrent l'intervalle [début, fin).</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Results Section -->
       <section class="card mb-4">
         <div class="card-header">

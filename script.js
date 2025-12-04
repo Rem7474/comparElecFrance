@@ -878,7 +878,7 @@
   if(btnMonthly) btnMonthly.addEventListener('click', renderMonthlyBreakdown);
 
   // --- localStorage persistence for UI settings ---
-  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel'];
+  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel','param-hphc-hcRange'];
   function storageKey(k){ return 'comparatifElec.' + k; }
   function saveSetting(id){ try{ const el = document.getElementById(id); if(!el) return; const val = (el.type==='checkbox') ? el.checked : el.value; localStorage.setItem(storageKey(id), JSON.stringify(val)); }catch(e){} }
   function loadSetting(id){ try{ const v = localStorage.getItem(storageKey(id)); if(v===null) return; const parsed = JSON.parse(v); const el = document.getElementById(id); if(!el) return; if(el.type==='checkbox'){ el.checked = parsed; } else { el.value = parsed; } }catch(e){} }
@@ -886,6 +886,49 @@
   for(const k of SETTINGS_KEYS) loadSetting(k);
   // save on change
   for(const k of SETTINGS_KEYS){ const el = document.getElementById(k); if(!el) continue; el.addEventListener('change', ()=> saveSetting(k)); el.addEventListener('input', ()=> saveSetting(k)); }
+
+  // Normalize and apply HP/HC HC range setting
+  function normalizeHcRange(str){
+    const m = String(str||'').trim().match(/^\s*([0-1]?\d|2[0-3])\s*-\s*([0-1]?\d|2[0-3])\s*$/);
+    if(!m) return null;
+    const s = String(m[1]).padStart(2,'0');
+    const e = String(m[2]).padStart(2,'0');
+    return `${s}-${e}`;
+  }
+  function applyHcRangeFromInput(){
+    const el = document.getElementById('param-hphc-hcRange');
+    if(!el) return;
+    const norm = normalizeHcRange(el.value);
+    if(!norm) return; // ignore invalid input silently
+    if(!DEFAULTS.hp) DEFAULTS.hp = {};
+    DEFAULTS.hp.hcRange = norm;
+    el.value = norm; // reflect normalization
+    populateDefaultsDisplay();
+  }
+  // Initial apply if present
+  try{ applyHcRangeFromInput(); }catch(e){}
+  // React to user changes with recalculation
+  (function(){
+    const el = document.getElementById('param-hphc-hcRange');
+    if(!el) return;
+    el.addEventListener('change', async ()=>{
+      const before = DEFAULTS.hp && DEFAULTS.hp.hcRange;
+      applyHcRangeFromInput();
+      const after = DEFAULTS.hp && DEFAULTS.hp.hcRange;
+      if(before === after) return;
+      // Recompute charts depending on HP/HC split
+      try{
+        const files = fileInput && fileInput.files;
+        if(files && files.length){
+          const records = await parseFilesToRecords(files);
+          try{ renderHpHcPie(records); }catch(e){}
+          // Trigger offers and monthly recompute
+          try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){}
+          try{ renderMonthlyBreakdown(); }catch(e){}
+        }
+      }catch(e){ console.warn('Recalc after HC range change failed', e); }
+    });
+  })();
 
   // Populate read-only display of defaults in the UI
   function populateDefaultsDisplay(){
