@@ -192,9 +192,9 @@
         <div id="contract-params-content" class="hidden">
           <div class="grid-2">
             <div class="form-group">
-              <label for="param-hphc-hcRange">Heures Creuses (Contrat HP/HC) — format HH-HH</label>
-              <input id="param-hphc-hcRange" type="text" value="22-06" placeholder="ex: 22-06" />
-              <small class="text-muted">Exemples: 22-06, 23-07, 12-14. Les HC couvrent l'intervalle [début, fin).</small>
+              <label for="param-hphc-hcRange">Heures Creuses (Contrat HP/HC) — formats HH-HH ou HH:MM-HH[:MM]; séparées par ;</label>
+              <input id="param-hphc-hcRange" type="text" value="22-06" placeholder="ex: 12:30-16;03-08" />
+              <small class="text-muted">Exemples: 22-06, 23-07;06-08, 12:30-16;03-08. Les HC couvrent l'intervalle [début, fin), avec gestion des intervalles qui franchissent minuit.</small>
             </div>
           </div>
         </div>

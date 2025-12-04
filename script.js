@@ -383,12 +383,33 @@
 
   // Tariff functions now use DEFAULTS. The UI inputs for tariffs were removed — defaults live in the script.
   function isHourHC(h, rangeStr){
+    // Support multiple ranges separated by ';' and optional minutes: HH or HH:MM
     if(!rangeStr) return false;
-    const parts = String(rangeStr||'22-06').split('-').map(s=>parseInt(s,10));
-    if(parts.length!==2 || isNaN(parts[0]) || isNaN(parts[1])) return false;
-    const start = parts[0], end = parts[1];
-    if(start < end){ return h >= start && h < end; }
-    return (h >= start && h <= 23) || (h >=0 && h < end);
+    const ranges = String(rangeStr).split(';').map(s=> s.trim()).filter(Boolean);
+    // convert hour h to minutes since 00:00
+    const hm = h * 60;
+    function parseTime(tok){
+      if(!tok) return null;
+      const m = tok.match(/^([0-1]?\d|2[0-3])(?::([0-5]?\d))?$/);
+      if(!m) return null;
+      const hh = parseInt(m[1],10);
+      const mm = m[2] != null ? parseInt(m[2],10) : 0;
+      return hh*60 + mm;
+    }
+    for(const r of ranges){
+      const [a,b] = r.split('-').map(s=> s.trim());
+      const startM = parseTime(a);
+      const endM = parseTime(b);
+      if(startM == null || endM == null) continue;
+      if(startM < endM){
+        // simple interval [start, end)
+        if(hm >= startM && hm < endM) return true;
+      } else {
+        // wraps midnight: [start, 24:00) or [00:00, end)
+        if(hm >= startM || hm < endM) return true;
+      }
+    }
+    return false;
   }
 
   // Generate a default full Tempo calendar map between two dates using approxPct
@@ -889,11 +910,23 @@
 
   // Normalize and apply HP/HC HC range setting
   function normalizeHcRange(str){
-    const m = String(str||'').trim().match(/^\s*([0-1]?\d|2[0-3])\s*-\s*([0-1]?\d|2[0-3])\s*$/);
-    if(!m) return null;
-    const s = String(m[1]).padStart(2,'0');
-    const e = String(m[2]).padStart(2,'0');
-    return `${s}-${e}`;
+    // Accept formats like: "22-06" or "12:30-16;03-08"; return normalized "HH[:MM]-HH[:MM];..."
+    const raw = String(str||'').trim();
+    if(!raw) return null;
+    const parts = raw.split(';').map(s=> s.trim()).filter(Boolean);
+    const out = [];
+    for(const p of parts){
+      const m = p.match(/^\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*-\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*$/);
+      if(!m) return null;
+      const sh = String(m[1]).padStart(2,'0');
+      const sm = m[2] != null ? String(m[2]).padStart(2,'0') : null;
+      const eh = String(m[3]).padStart(2,'0');
+      const em = m[4] != null ? String(m[4]).padStart(2,'0') : null;
+      const startToken = sm != null ? `${sh}:${sm}` : `${sh}`;
+      const endToken = em != null ? `${eh}:${em}` : `${eh}`;
+      out.push(`${startToken}-${endToken}`);
+    }
+    return out.join(';');
   }
   function applyHcRangeFromInput(){
     const el = document.getElementById('param-hphc-hcRange');
