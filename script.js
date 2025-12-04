@@ -899,7 +899,7 @@
   if(btnMonthly) btnMonthly.addEventListener('click', renderMonthlyBreakdown);
 
   // --- localStorage persistence for UI settings ---
-  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel','param-hphc-hcRange'];
+  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel','param-hphc-hcRange','param-sub-base','param-sub-hphc','param-sub-tempo'];
   function storageKey(k){ return 'comparatifElec.' + k; }
   function saveSetting(id){ try{ const el = document.getElementById(id); if(!el) return; const val = (el.type==='checkbox') ? el.checked : el.value; localStorage.setItem(storageKey(id), JSON.stringify(val)); }catch(e){} }
   function loadSetting(id){ try{ const v = localStorage.getItem(storageKey(id)); if(v===null) return; const parsed = JSON.parse(v); const el = document.getElementById(id); if(!el) return; if(el.type==='checkbox'){ el.checked = parsed; } else { el.value = parsed; } }catch(e){} }
@@ -960,6 +960,47 @@
           try{ renderMonthlyBreakdown(); }catch(e){}
         }
       }catch(e){ console.warn('Recalc after HC range change failed', e); }
+    });
+  })();
+
+  // Apply subscription price inputs
+  function applySubscriptionInputs(){
+    const sb = document.getElementById('param-sub-base');
+    const sh = document.getElementById('param-sub-hphc');
+    const st = document.getElementById('param-sub-tempo');
+    let changed = false;
+    if(sb && sb.value){ const v = Number(sb.value); if(!isNaN(v) && v >= 0){ if(DEFAULTS.subBase !== v){ DEFAULTS.subBase = v; changed = true; } } }
+    if(sh && sh.value){ const v = Number(sh.value); if(!isNaN(v) && v >= 0){ if((DEFAULTS.hp||{}).sub !== v){ if(!DEFAULTS.hp) DEFAULTS.hp = {}; DEFAULTS.hp.sub = v; changed = true; } } }
+    if(st && st.value){ const v = Number(st.value); if(!isNaN(v) && v >= 0){ if((DEFAULTS.tempo||{}).sub !== v){ if(!DEFAULTS.tempo) DEFAULTS.tempo = {}; DEFAULTS.tempo.sub = v; changed = true; } } }
+    if(changed) populateDefaultsDisplay();
+    return changed;
+  }
+  // Initialize inputs with current values
+  (function(){ try{
+    const sb = document.getElementById('param-sub-base'); if(sb && !sb.value) sb.value = String(DEFAULTS.subBase || '');
+    const sh = document.getElementById('param-sub-hphc'); if(sh && !sh.value) sh.value = String((DEFAULTS.hp||{}).sub || '');
+    const st = document.getElementById('param-sub-tempo'); if(st && !st.value) st.value = String((DEFAULTS.tempo||{}).sub || '');
+  }catch(e){} })();
+  // Listen and recalc on changes
+  (function(){
+    const ids = ['param-sub-base','param-sub-hphc','param-sub-tempo'];
+    ids.forEach(id=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('change', async ()=>{
+        saveSetting(id);
+        const changed = applySubscriptionInputs();
+        if(!changed) return;
+        try{
+          const files = fileInput && fileInput.files;
+          if(files && files.length){
+            const records = await parseFilesToRecords(files);
+            // Re-render monthly breakdown and offers (subscriptions impact totals)
+            try{ renderMonthlyBreakdown(); }catch(e){}
+            try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){}
+          }
+        }catch(e){ console.warn('Recalc after subscription change failed', e); }
+      });
     });
   })();
 
