@@ -105,6 +105,76 @@
   // normalized weights cached
   DEFAULTS.monthlySolarWeights = (function(){ const s = DEFAULTS.monthlySolarWeightsRaw.reduce((a,b)=>a+b,0); return DEFAULTS.monthlySolarWeightsRaw.map(v=> v / s); })();
 
+  // --- Automatic Power & Subscription Detection ---
+  const SUBSCRIPTION_GRID = {
+      // Prices in €/month (Approx TTC 2024/2025)
+      // kVA: price
+      base: { 3: 11.73, 6: 15.47, 9: 19.39, 12: 23.32, 15: 27.06, 18: 30.76, 24: 38.79, 30: 46.44, 36: 54.29 },
+      hphc: { 6: 15.74, 9: 19.81, 12: 23.76, 15: 27.49, 18: 31.34, 24: 39.47, 30: 47.02, 36: 54.61 }, 
+      tempo: { 6: 15.50, 9: 19.49, 12: 23.38, 15: 27.01, 18: 30.79, 30: 46.31, 36: 54.43 }
+  };
+
+  function getPriceForPower(type, kva) {
+      const grid = SUBSCRIPTION_GRID[type];
+      if (!grid) return 0;
+      if (grid[kva]) return grid[kva];
+
+      // If exact kVA not found (e.g. 24 kVA in Tempo), find the next available higher power
+      const avail = Object.keys(grid).map(Number).sort((a,b)=>a-b);
+      const upper = avail.find(p => p >= kva);
+      if (upper) return grid[upper];
+      
+      // Fallback to max or default
+      return grid[avail[avail.length-1]] || 0;
+  }
+
+  function updateSubscriptionDefault(kva){
+      if(!kva) return;
+      const safeKva = Number(kva);
+      if(isNaN(safeKva)) return;
+
+      // Update DEFAULTS with grid prices (fallback to 6kVA or closest available)
+      const b = getPriceForPower('base', safeKva) || 15.47;
+      const hp = getPriceForPower('hphc', safeKva) || 15.74;
+      const tm = getPriceForPower('tempo', safeKva) || 15.50;
+
+      DEFAULTS.subBase = b;
+      DEFAULTS.hp.sub = hp;
+      DEFAULTS.tempo.sub = tm;
+
+      // Update Inputs
+      const inpBase = document.getElementById('param-sub-base');
+      const inpHp = document.getElementById('param-sub-hphc');
+      const inpTempo = document.getElementById('param-sub-tempo');
+      
+      if(inpBase) inpBase.value = b.toFixed(2);
+      if(inpHp) inpHp.value = hp.toFixed(2);
+      if(inpTempo) inpTempo.value = tm.toFixed(2);
+  }
+
+  // Listener for kVA selector change (Manual Override)
+  const kvaSelect = document.getElementById('param-power-kva');
+  if(kvaSelect){
+      kvaSelect.addEventListener('change', ()=>{
+          const val = kvaSelect.value;
+          if(val !== 'auto'){
+              updateSubscriptionDefault(val);
+              // Trigger recalc
+              const btn = document.getElementById('btn-compare-offers'); 
+              if(btn) btn.click();
+          } else {
+             // If switched back to auto, we might want to re-trigger analysis or use stored detected value
+             // For now, let's just leave it, it will update on next analysis. 
+             // Or better: store the detected max power in a variable?
+             if(window.detectedKva){
+                 updateSubscriptionDefault(window.detectedKva);
+                 const btn = document.getElementById('btn-compare-offers'); 
+                 if(btn) btn.click();
+             }
+          }
+      });
+  }
+
   function log(msg){
     logEl.textContent = msg;
   }
@@ -364,6 +434,33 @@
       // Update Dashboard Metric: Total Conso
       const totalConsoEl = document.getElementById('val-total-conso');
       if(totalConsoEl) totalConsoEl.textContent = formatNumber(stats.total) + ' kWh';
+
+      // --- Detect Max Power & Adjust Subscription ---
+      let stepDurationHours = 0.5; // Default assumption for Enedis (30 min) if detection fails
+      if(records.length > 2){
+         const t1 = new Date(records[0].dateDebut).getTime();
+         const t2 = new Date(records[1].dateDebut).getTime();
+         const diff = Math.abs(t2 - t1); 
+         if(diff > 0 && diff < 86400000) stepDurationHours = diff / 3600000;
+      }
+      // stats.max is array[24] of max values found @ hour h. The global max is max(stats.max)
+      const maxValEnergy = Math.max(...stats.max);
+      const maxPowerKw = (stepDurationHours > 0) ? (maxValEnergy / stepDurationHours) : maxValEnergy;
+      
+      const kvaSteps = [3, 6, 9, 12, 15, 18, 24, 30, 36];
+      let recommendedKva = 36;
+      for(const s of kvaSteps){ if(s >= maxPowerKw){ recommendedKva = s; break; } }
+      
+      window.detectedKva = recommendedKva;
+      
+      const kvaInfo = document.getElementById('power-detected-info');
+      if(kvaInfo) kvaInfo.textContent = `Max: ${maxPowerKw.toFixed(1)} kW (Standard: ${recommendedKva} kVA)`;
+      
+      const kvaSel = document.getElementById('param-power-kva');
+      if(kvaSel && kvaSel.value === 'auto'){
+          updateSubscriptionDefault(recommendedKva);
+      }
+      // ---------------------------------------------
 
       renderHourlyChart(stats);
       try{ renderHpHcPie(records); }catch(e){}

@@ -192,6 +192,22 @@
         <div id="contract-params-content" class="hidden">
           <div class="grid-2">
             <div class="form-group">
+                <label for="param-power-kva">Puissance souscrite (kVA)</label>
+                <select id="param-power-kva">
+                    <option value="auto" selected>Auto (détectée)</option>
+                    <option value="3">3 kVA</option>
+                    <option value="6">6 kVA</option>
+                    <option value="9">9 kVA</option>
+                    <option value="12">12 kVA</option>
+                    <option value="15">15 kVA</option>
+                    <option value="18">18 kVA</option>
+                    <option value="24">24 kVA</option>
+                    <option value="30">30 kVA</option>
+                    <option value="36">36 kVA</option>
+                </select>
+                <small class="text-muted" id="power-detected-info">Sera calculée à l'import.</small>
+            </div>
+            <div class="form-group">
               <label for="param-hphc-hcRange">Heures Creuses (Contrat HP/HC) — formats HH-HH ou HH:MM-HH[:MM]; séparées par ;</label>
               <input id="param-hphc-hcRange" type="text" value="22-06" placeholder="ex: 12:30-16;03-08" />
               <small class="text-muted">Exemples: 22-06, 23-07;06-08, 12:30-16;03-08. Les HC couvrent l'intervalle [début, fin), avec gestion des intervalles qui franchissent minuit.</small>
