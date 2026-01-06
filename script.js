@@ -150,6 +150,8 @@
       if(inpBase) inpBase.value = b.toFixed(2);
       if(inpHp) inpHp.value = hp.toFixed(2);
       if(inpTempo) inpTempo.value = tm.toFixed(2);
+      
+      populateDefaultsDisplay();
   }
 
   // Listener for kVA selector change (Manual Override)
