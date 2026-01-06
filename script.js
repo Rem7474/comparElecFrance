@@ -1337,17 +1337,31 @@
 
     // baseline: perHourAnnual from records
     const perHourAnnual = Array.from({length:24}, ()=>0);
-    for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); perHourAnnual[h] += v; }
+    const uniqueMonths = new Set();
+    for(const r of records){ 
+        const v = Number(r.valeur)||0; 
+        const d = new Date(r.dateDebut);
+        const h = d.getHours(); 
+        perHourAnnual[h] += v; 
+        uniqueMonths.add(`${d.getFullYear()}-${d.getMonth()}`);
+    }
+    const monthsCount = Math.max(1, uniqueMonths.size);
 
     // offers parameters (use current UI prices as defaults)
     const priceBase = Number(DEFAULTS.priceBase) || 0.18;
     const hpParams = { mode: 'hp-hc', php: Number(DEFAULTS.hp.php)||0.2, phc: Number(DEFAULTS.hp.phc)||0.12, hcRange: (DEFAULTS.hp.hcRange||'22-06') };
 
+    // Subscription costs for the period
+    const subBase = (Number(DEFAULTS.subBase)||0) * monthsCount;
+    const subHp = (Number(DEFAULTS.hp.sub)||0) * monthsCount;
+    const subTempo = (Number(DEFAULTS.tempo.sub)||0) * monthsCount;
+
     // cost without PV
-    const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, {mode:'base'}).cost;
-    const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost;
+    const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, {mode:'base'}).cost + subBase;
+    const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost + subHp;
     // Tempo cost without PV
     const tempoResNoPV = calculateTariffCostTempo(records);
+    tempoResNoPV.cost += subTempo;
 
     // simulate PV (take into account standby consumption if provided)
     const standbyW = Number((document.getElementById('pv-standby')||{}).value) || 0;
@@ -1355,8 +1369,8 @@
     // reduce perHourAnnual by self-consumed amount to get grid consumption with PV
     const perHourWithPV = perHourAnnual.map((v,h)=> Math.max(0, v - (pvSim.consumedByHour[h]||0)));
 
-    const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, {mode:'base'}).cost;
-    const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost;
+    const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, {mode:'base'}).cost + subBase;
+    const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost + subHp;
   
     // build records adjusted by self-consumed PV per hour (use precise allocation from simulation)
     const recordsWithPV = records.map(r=> ({ ...r }));
@@ -1366,6 +1380,7 @@
       rec.valeur = Math.max(0, Number(rec.valeur||0) - reduction);
     }
     const tempoResWithPV = calculateTariffCostTempo(recordsWithPV);
+    tempoResWithPV.cost += subTempo;
 
     // export income
     const exportIncome = pvSim.exported * exportPrice;
