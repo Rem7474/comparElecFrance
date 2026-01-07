@@ -818,6 +818,60 @@
   function computeCostHPHCForRecords(records){ const php = Number(DEFAULTS.hp.php)||0; const phc = Number(DEFAULTS.hp.phc)||0; const hcRange = (DEFAULTS.hp.hcRange||'22-06'); let hp=0,hc=0; for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); if(isHourHC(h,hcRange)){ hc += v * phc; } else { hp += v * php; } } return { cost: hp+hc, hp, hc } }
   function computeCostTempoForRecords(records){ const res = calculateTariffCostTempo(records); return res; }
 
+  function computeCostTempoOptimizedForRecords(records){
+      let tempoMapOpt = null;
+      try{ if(typeof __tempoDayMapCache !== 'undefined') tempoMapOpt = __tempoDayMapCache; }catch(e){}
+      
+      if (!tempoMapOpt) return computeCostTempoForRecords(records);
+
+      let cost = 0;
+      const getT = (k) => {
+           const d = DEFAULTS.tempo[k];
+           if(d && typeof d === 'object') return { hp: Number(d.hp)||0, hc: Number(d.hc)||0 };
+           return { hp: Number(d)||0, hc: Number(d)||0 };
+       };
+       const rates = { blue: getT('blue'), white: getT('white'), red: getT('red') };
+
+       for (const r of records) {
+           const d = new Date(r.dateDebut);
+           const dateStr = d.toISOString().slice(0,10);
+           const h = d.getHours();
+           const val = Number(r.valeur) || 0;
+           
+           let colorLetter = 'B'; 
+           let isHC = false; 
+           
+           if (h < 6) {
+               const prev = new Date(d); prev.setDate(prev.getDate()-1);
+               const bucket = prev.toISOString().slice(0,10);
+               const entry = tempoMapOpt[bucket] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else if (h >= 22) {
+               const entry = tempoMapOpt[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else {
+               const entry = tempoMapOpt[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = false;
+           }
+
+           const key = (colorLetter === 'R') ? 'red' : (colorLetter === 'W') ? 'white' : 'blue';
+           const rts = rates[key];
+           
+           if (colorLetter === 'R' && !isHC) {
+               const costRedPart = (val * 0.5) * rts.hp;
+               const costWhitePart = (val * 0.5) * rates.white.hp;
+               cost += (costRedPart + costWhitePart);
+           } else {
+               const price = isHC ? rts.hc : rts.hp;
+               cost += val * price;
+           }
+       }
+       return { cost };
+  }
+
   // build reduced copy of records with consumption reduced by 'reduction' kWh distributed proportionally across records in the month
   function applyMonthlyReduction(records, reduction){ const total = records.reduce((s,r)=> s + (Number(r.valeur)||0), 0); if(total<=0) return records.map(r=> ({...r})); const factor = Math.max(0, (total - reduction)) / total; return records.map(r=> ({ ...r, valeur: (Number(r.valeur)||0) * factor })); }
 
@@ -857,6 +911,9 @@
   const subTempo = Number(DEFAULTS.tempo.sub)||0;
   const tempoTotal = (tempoEnergyObj && tempoEnergyObj.cost) ? tempoEnergyObj.cost + subTempo : 0;
 
+      const tempoOptEnergyObj = computeCostTempoOptimizedForRecords(recs);
+      const tempoOptTotal = (tempoOptEnergyObj && tempoOptEnergyObj.cost) ? tempoOptEnergyObj.cost + subTempo : 0;
+
       // with PV: reduce consumption by monthSelf proportionally across records
       const recsWithPV = applyMonthlyReduction(recs, monthSelf);
       const baseEnergyPV = computeCostBaseForRecords(recsWithPV);
@@ -868,7 +925,23 @@
       const tempoEnergyObjPV = computeCostTempoForRecords(recsWithPV);
       const tempoTotalPV = (tempoEnergyObjPV && tempoEnergyObjPV.cost) ? tempoEnergyObjPV.cost + subTempo - ( (monthPV - monthSelf) * exportPrice ) : 0;
 
-      results.push({ month: k, consumption: totalKwh, monthPV, monthSelf, base:{ energy: baseEnergy, total: baseTotal }, basePV:{ energy: baseEnergyPV, total: baseTotalPV }, hphc:{ energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcTotal }, hphcPV:{ energy: hphcEnergyObjPV.cost, total: hphcTotalPV }, tempo:{ energy: tempoEnergyObj.cost||0, total: tempoTotal }, tempoPV:{ energy: (tempoEnergyObjPV && tempoEnergyObjPV.cost)||0, total: tempoTotalPV } });
+      const tempoOptEnergyObjPV = computeCostTempoOptimizedForRecords(recsWithPV);
+      const tempoOptTotalPV = (tempoOptEnergyObjPV && tempoOptEnergyObjPV.cost) ? tempoOptEnergyObjPV.cost + subTempo - ( (monthPV - monthSelf) * exportPrice ) : 0;
+
+      results.push({ 
+          month: k, 
+          consumption: totalKwh, 
+          monthPV, 
+          monthSelf, 
+          base:{ energy: baseEnergy, total: baseTotal }, 
+          basePV:{ energy: baseEnergyPV, total: baseTotalPV }, 
+          hphc:{ energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcTotal }, 
+          hphcPV:{ energy: hphcEnergyObjPV.cost, total: hphcTotalPV }, 
+          tempo:{ energy: tempoEnergyObj.cost||0, total: tempoTotal }, 
+          tempoPV:{ energy: (tempoEnergyObjPV && tempoEnergyObjPV.cost)||0, total: tempoTotalPV },
+          tempoOpt: { energy: tempoOptEnergyObj.cost||0, total: tempoOptTotal },
+          tempoOptPV: { energy: tempoOptEnergyObjPV.cost||0, total: tempoOptTotalPV }
+      });
     }
     return results;
   }
@@ -896,9 +969,10 @@
     if (isPvEnabled) {
         headerHTML += '<th>Base (€)</th><th>Base (avec PV) (€)</th><th>Éco. PV Base (€)</th>'+
                       '<th>HP/HC (€)</th><th>HP/HC (avec PV) (€)</th><th>Éco. PV HP/HC (€)</th>'+
-                      '<th>Tempo (€)</th><th>Tempo (avec PV) (€)</th><th>Éco. PV Tempo (€)</th>';
+                      '<th>Tempo (€)</th><th>Tempo (avec PV) (€)</th><th>Éco. PV Tempo (€)</th>'+
+                      '<th>Tempo Opt. (€)</th><th>Tempo Opt. (avec PV) (€)</th><th>Éco. PV Tempo Opt. (€)</th>';
     } else {
-        headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th>';
+        headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th>';
     }
     hdr.innerHTML = headerHTML;
     table.appendChild(hdr);
@@ -908,7 +982,8 @@
       month: row.month,
       base: Math.max(0, (row.base.total||0) - (row.basePV.total||0)),
       hphc: Math.max(0, (row.hphc.total||0) - (row.hphcPV.total||0)),
-      tempo: Math.max(0, (row.tempo.total||0) - (row.tempoPV.total||0))
+      tempo: Math.max(0, (row.tempo.total||0) - (row.tempoPV.total||0)),
+      tempoOpt: Math.max(0, (row.tempoOpt.total||0) - (row.tempoOptPV.total||0))
     }));
     for(const [i,row] of data.entries()){
       const sv = monthlySavings[i];
@@ -924,11 +999,15 @@
                      `<td style="color:#2e7d32">${formatNumber(sv.hphc)}</td>`+
                      `<td>${formatNumber(row.tempo.total)}</td>`+
                      `<td>${formatNumber(row.tempoPV.total)}</td>`+
-                     `<td style="color:#2e7d32">${formatNumber(sv.tempo)}</td>`;
+                     `<td style="color:#2e7d32">${formatNumber(sv.tempo)}</td>`+
+                     `<td>${formatNumber(row.tempoOpt.total)}</td>`+
+                     `<td>${formatNumber(row.tempoOptPV.total)}</td>`+
+                     `<td style="color:#2e7d32">${formatNumber(sv.tempoOpt)}</td>`;
       } else {
           rowHTML += `<td>${formatNumber(row.base.total)}</td>`+
                      `<td>${formatNumber(row.hphc.total)}</td>`+
-                     `<td>${formatNumber(row.tempo.total)}</td>`;
+                     `<td>${formatNumber(row.tempo.total)}</td>`+
+                     `<td>${formatNumber(row.tempoOpt.total)}</td>`;
       }
       tr.innerHTML = rowHTML;
       table.appendChild(tr);
@@ -940,8 +1019,9 @@
         const totalSavings = monthlySavings.reduce((acc,m)=>({
         base: acc.base + (m.base||0),
         hphc: acc.hphc + (m.hphc||0),
-        tempo: acc.tempo + (m.tempo||0)
-        }), {base:0,hphc:0,tempo:0});
+        tempo: acc.tempo + (m.tempo||0),
+        tempoOpt: acc.tempoOpt + (m.tempoOpt||0)
+        }), {base:0,hphc:0,tempo:0,tempoOpt:0});
         const totalsBox = document.createElement('div');
         totalsBox.id = 'pv-savings-totals';
         totalsBox.className = 'log';
@@ -949,7 +1029,8 @@
         totalsBox.innerHTML = `<strong>Économies annuelles (par offre)</strong> — `+
                             `Base: ${formatNumber(totalSavings.base)} € &nbsp; | &nbsp; `+
                             `HP/HC: ${formatNumber(totalSavings.hphc)} € &nbsp; | &nbsp; `+
-                            `Tempo: ${formatNumber(totalSavings.tempo)} €`;
+                            `Tempo: ${formatNumber(totalSavings.tempo)} € &nbsp; | &nbsp; `+
+                            `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt)} €`;
         container.appendChild(totalsBox);
     }
 
@@ -957,9 +1038,23 @@
     const labels = data.map(d=> d.month);
     let ds = [];
     if (isPvEnabled) {
-        ds = [ {label:'Base', data: data.map(d=> d.base.total), backgroundColor:'#4e79a7'}, {label:'Base (avec PV)', data: data.map(d=> d.basePV.total), backgroundColor:'#a0cbe8'}, {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, {label:'HP/HC (avec PV)', data: data.map(d=> d.hphcPV.total), backgroundColor:'#ffbe7d'}, {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'}, {label:'Tempo (avec PV)', data: data.map(d=> d.tempoPV.total), backgroundColor:'#bfe5b9'} ];
+        ds = [ 
+            {label:'Base', data: data.map(d=> d.base.total), backgroundColor:'#4e79a7'}, 
+            {label:'Base (avec PV)', data: data.map(d=> d.basePV.total), backgroundColor:'#a0cbe8'}, 
+            {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, 
+            {label:'HP/HC (avec PV)', data: data.map(d=> d.hphcPV.total), backgroundColor:'#ffbe7d'}, 
+            {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'}, 
+            {label:'Tempo (avec PV)', data: data.map(d=> d.tempoPV.total), backgroundColor:'#bfe5b9'},
+            {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#117a8b'}, 
+            {label:'Tempo Opt. (avec PV)', data: data.map(d=> d.tempoOptPV.total), backgroundColor:'#17a2b8'}
+        ];
     } else {
-        ds = [ {label:'Base', data: data.map(d=> d.base.total), backgroundColor:'#4e79a7'}, {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'} ];
+        ds = [ 
+            {label:'Base', data: data.map(d=> d.base.total), backgroundColor:'#4e79a7'}, 
+            {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, 
+            {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'},
+            {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#17a2b8'}
+        ];
     }
     
     const ctx = document.getElementById('monthly-chart').getContext('2d'); if(window.monthlyChart){ window.monthlyChart.destroy(); window.monthlyChart = null; }
@@ -981,7 +1076,8 @@
                 datasets: [
                 { label:'Éco. Base (€)', data: monthlySavings.map(m=> m.base), backgroundColor:'#2e7d3233', borderColor:'#2e7d32', borderWidth:1 },
                 { label:'Éco. HP/HC (€)', data: monthlySavings.map(m=> m.hphc), backgroundColor:'#00838f33', borderColor:'#00838f', borderWidth:1 },
-                { label:'Éco. Tempo (€)', data: monthlySavings.map(m=> m.tempo), backgroundColor:'#8e24aa33', borderColor:'#8e24aa', borderWidth:1 }
+                { label:'Éco. Tempo (€)', data: monthlySavings.map(m=> m.tempo), backgroundColor:'#8e24aa33', borderColor:'#8e24aa', borderWidth:1 },
+                { label:'Éco. Tempo Opt. (€)', data: monthlySavings.map(m=> m.tempoOpt), backgroundColor:'#005cbf33', borderColor:'#005cbf', borderWidth:1 }
                 ]
             },
             options: { responsive:true, scales:{ y:{ beginAtZero:true, title:{ display:true, text:'€ / mois économisés' } } }, interaction:{ mode:'index' } }
@@ -1279,8 +1375,61 @@
       const best = {
           base: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
           hphc: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
-          tempo: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 }
+          tempo: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
+          tempoOpt: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 }
       };
+
+      // Helper function to get optimized tempo price per record logic (simplified for cache)
+      // Actually we need to calculate savings dynamically because optimization depends on consumption shift which is not linear per kWh if we shift volume.
+      // BUT: The optimization simulates shifting 50% RedHP -> WhiteHP.
+      // Price per kWh effectively changes for that portion.
+      // We can pre-calculate the "Effective Price" for each record under Optimized Tempo strategy.
+      
+      const getTempoOptEffectivePrice = (r, tMap) => {
+           const d = new Date(r.dateDebut);
+           const dateStr = d.toISOString().slice(0,10);
+           const h = d.getHours();
+           // ... logic similar to global computeCostTempoOptimizedForRecords ...
+           const getT = (k) => {
+               const def = DEFAULTS.tempo[k];
+               if(def && typeof def === 'object') return { hp: Number(def.hp)||0, hc: Number(def.hc)||0 };
+               return { hp: Number(def)||0, hc: Number(def)||0 };
+           };
+           const rates = { blue: getT('blue'), white: getT('white'), red: getT('red') };
+
+           let colorLetter = 'B'; 
+           let isHC = false;
+           if (h < 6) {
+               const prev = new Date(d); prev.setDate(prev.getDate()-1);
+               const bucket = prev.toISOString().slice(0,10);
+               const entry = tMap[bucket] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else if (h >= 22) {
+               const entry = tMap[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else {
+               const entry = tMap[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = false;
+           }
+
+           const key = (colorLetter === 'R') ? 'red' : (colorLetter === 'W') ? 'white' : 'blue';
+           const rts = rates[key];
+
+           if (colorLetter === 'R' && !isHC) {
+                // Effective price = (0.5 * RedHP) + (0.5 * WhiteHP)
+                return (0.5 * rts.hp) + (0.5 * rates.white.hp);
+           } else {
+                return isHC ? rts.hc : rts.hp;
+           }
+      };
+
+      // Pre-calculate effective prices for optimized tempo
+      for(let i=0; i<records.length; i++){
+          tariffs[i].tempoOpt = getTempoOptEffectivePrice(records[i], tempoMap);
+      }
 
       for(let n=1; n<=24; n++){
         const kwp = n * panelPower;
@@ -1290,7 +1439,7 @@
         const totalCost = costBase + (n * costPanel);
         const exportIncome = sim.exported * exportPrice;
 
-        let savedBase = 0, savedHphc = 0, savedTempo = 0;
+        let savedBase = 0, savedHphc = 0, savedTempo = 0, savedTempoOpt = 0;
         for(let i=0; i<records.length; i++){
             const rec = records[i];
             const selfConsumed = sim.allocatedByTimestamp[rec.dateDebut] || 0;
@@ -1298,22 +1447,27 @@
                 savedBase += selfConsumed * tariffs[i].base;
                 savedHphc += selfConsumed * tariffs[i].hphc;
                 savedTempo += selfConsumed * tariffs[i].tempo;
+                savedTempoOpt += selfConsumed * tariffs[i].tempoOpt;
             }
         }
 
         const annualBase = savedBase + exportIncome;
         const annualHphc = savedHphc + exportIncome;
         const annualTempo = savedTempo + exportIncome;
+        const annualTempoOpt = savedTempoOpt + exportIncome;
 
         const gainBase = (annualBase * roiYears) - totalCost;
         const gainHphc = (annualHphc * roiYears) - totalCost;
         const gainTempo = (annualTempo * roiYears) - totalCost;
+        const gainTempoOpt = (annualTempoOpt * roiYears) - totalCost;
 
         const ratio = (annualProd > 0) ? (sim.selfConsumed / annualProd) : 0;
-        if(ratio > 0.50){
+        // Adjusted threshold: accept lower self-consumption ratios (e.g. 5%) to avoid hiding valid configs for large systems or low consumption profiles
+        if(ratio > 0.05){
             if(gainBase > best.base.gain) best.base = { kwp, n, gain: gainBase, cost: totalCost, savings: annualBase, ratio };
             if(gainHphc > best.hphc.gain) best.hphc = { kwp, n, gain: gainHphc, cost: totalCost, savings: annualHphc, ratio };
             if(gainTempo > best.tempo.gain) best.tempo = { kwp, n, gain: gainTempo, cost: totalCost, savings: annualTempo, ratio };
+            if(gainTempoOpt > best.tempoOpt.gain) best.tempoOpt = { kwp, n, gain: gainTempoOpt, cost: totalCost, savings: annualTempoOpt, ratio };
         }
       }
       return best;
@@ -1324,7 +1478,7 @@
     if(!files || files.length===0){ alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.'); return; }
     
     const grid = document.getElementById('offers-results-grid');
-    if(grid) grid.innerHTML = '';
+    // if(grid) grid.innerHTML = ''; // Moved clearing to later to prevent race conditions
 
     appendAnalysisLog('Comparaison des offres en cours...');
     const records = await parseFilesToRecords(files);
@@ -1384,6 +1538,71 @@
     const tempoResWithPV = calculateTariffCostTempo(recordsWithPV);
     tempoResWithPV.cost += subTempo;
 
+    // --- Simpson Optimized Tempo (Migration 50% HP Rouge -> HP Blanc) ---
+    // Simule un changement de comportement: réduire de moitié la conso en jours rouges (heures pleines)
+    // et la reporter sur des jours blancs.
+    let tempoOptimizedCost = 0;
+    let tempoMapOpt = null;
+    try{ if(typeof __tempoDayMapCache !== 'undefined') tempoMapOpt = __tempoDayMapCache; }catch(e){}
+    
+    if (tempoMapOpt) {
+       // Helper to safely get rate structure
+       const getT = (k) => {
+           const d = DEFAULTS.tempo[k];
+           if(d && typeof d === 'object') return { hp: Number(d.hp)||0, hc: Number(d.hc)||0 };
+           return { hp: Number(d)||0, hc: Number(d)||0 };
+       };
+       const rates = { blue: getT('blue'), white: getT('white'), red: getT('red') };
+       
+       for (const r of recordsWithPV) {
+           const d = new Date(r.dateDebut);
+           const dateStr = d.toISOString().slice(0,10);
+           const h = d.getHours();
+           const val = Number(r.valeur) || 0;
+           
+           // Determine Context (Day Color & HC/HP)
+           let colorLetter = 'B'; 
+           let isHC = false; // default HP
+           
+           // Logic TEMPO (06h-22h = HP current day; <06h = HC prev day; >=22h = HC current day)
+           if (h < 6) {
+               const prev = new Date(d); prev.setDate(prev.getDate()-1);
+               const bucket = prev.toISOString().slice(0,10);
+               const entry = tempoMapOpt[bucket] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else if (h >= 22) {
+               const entry = tempoMapOpt[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = true;
+           } else {
+               const entry = tempoMapOpt[dateStr] || 'B';
+               colorLetter = (typeof entry === 'string') ? entry.toUpperCase() : ((entry && entry.color) ? String(entry.color).toUpperCase() : 'B');
+               isHC = false;
+           }
+
+           const key = (colorLetter === 'R') ? 'red' : (colorLetter === 'W') ? 'white' : 'blue';
+           const rts = rates[key];
+           
+           if (colorLetter === 'R' && !isHC) {
+               // RED HP CASE -> OPTIMIZATION
+               // 50% stays Red HP, 50% moves to White HP
+               const costRedPart = (val * 0.5) * rts.hp;
+               const costWhitePart = (val * 0.5) * rates.white.hp;
+               tempoOptimizedCost += (costRedPart + costWhitePart);
+           } else {
+               // Standard case
+               const price = isHC ? rts.hc : rts.hp;
+               tempoOptimizedCost += val * price;
+           }
+       }
+       tempoOptimizedCost += subTempo;
+    } else {
+        tempoOptimizedCost = tempoResWithPV.cost; // Fallback
+    }
+    // ---------------------------------------------------------------------
+
+
     // export income
     const exportIncome = pvSim.exported * exportPrice;
 
@@ -1408,7 +1627,7 @@
         else pvInfoEl.textContent = 'Production estimée';
     }
 
-    // Determine best and worst offer
+    // Determine best and worst offer (excluding optimized for "Best Offer" badge logic to keep it fair/standard)
     const offerDetails = [
         { id: 'base', name: 'Base', val: baseCostWithPV },
         { id: 'hphc', name: 'HP/HC', val: hpCostWithPV },
@@ -1418,10 +1637,11 @@
     const bestId = offerDetails[0].id;
     const worstOffer = offerDetails[offerDetails.length - 1];
 
+
     // Generate Cards
-    const createCard = (title, costNoPV, costPV, isBest) => {
+    const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg) => {
         const div = document.createElement('div');
-        div.className = 'card result-card' + (isBest ? ' best-offer' : '');
+        div.className = 'card result-card' + (isBest ? ' best-offer' : '') + (customClass ? ' '+customClass : '');
         const savings = (costNoPV - costPV) + exportIncome;
         
         let pvRows = '';
@@ -1455,38 +1675,103 @@
                 Économie vs ${worstOffer.name} : <strong>${formatNumber(diff)} €</strong>
              </div>`;
         }
+        
+        let warningBlock = '';
+        if (warningMsg) {
+            if(isPositiveMsg) {
+                warningBlock = `<div style="margin-bottom:8px; font-size:0.8rem; color:#155724; background-color:#d4edda; border:1px solid #c3e6cb; padding:4px 6px; border-radius:4px;">
+                    ✅ ${warningMsg}
+                </div>`;
+            } else {
+                warningBlock = `<div style="margin-bottom:8px; font-size:0.8rem; color:#856404; background-color:#fff3cd; border:1px solid #ffeeba; padding:4px 6px; border-radius:4px;">
+                    ⚠️ ${warningMsg}
+                </div>`;
+            }
+        }
+        
+        // Handle extra info block (e.g. for Optimized Tempo comparisons)
+        let extraInfoBlock = '';
+        if (extraInfo) {
+             extraInfoBlock = `<div style="margin-top:8px; font-size:0.85rem; color:#004085; background-color:#cce5ff; border:1px solid #b8daff; padding: 4px 8px; border-radius: 6px; text-align:center;">
+                ${extraInfo}
+             </div>`;
+        }
 
         div.innerHTML = `
             <div class="card-header-row">
                 <h3 class="offer-title">${title}</h3>
                 ${isBest ? '<span class="badge-best">Meilleure Offre</span>' : ''}
             </div>
+            ${warningBlock}
             <div class="cost-display">
                 <span class="cost-main">${formatNumber(costPV)} €</span>
                 <span class="cost-sub">/ an</span>
             </div>
             ${bestOfferExtras}
+            ${extraInfoBlock}
             ${pvRows}
         `;
         return div;
     };
 
+    // Pre-calculate Optimized Cost without PV (needed for both Cards and Chart)
+    const tempoOptimizedResNoPV = computeCostTempoOptimizedForRecords(records);
+    const tempoOptimizedCostNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) ? tempoOptimizedResNoPV.cost + subTempo : 0;
+
     if(grid) {
+        grid.innerHTML = ''; // Clear before appending to avoid duplicates if multiple calls overlap
         grid.appendChild(createCard('Base', baseCostNoPV, baseCostWithPV, bestId === 'base'));
         grid.appendChild(createCard('Heures Pleines / Creuses', hpCostNoPV, hpCostWithPV, bestId === 'hphc'));
-        grid.appendChild(createCard('Tempo', tempoResNoPV.cost, tempoResWithPV.cost, bestId === 'tempo'));
+        
+        // Standard Tempo with Warning
+        // const msgColor = "green"; // Actually handled by CSS/Layout below
+        const positiveMsgClass = "success-msg-box"; // We can inject custom style directly or use class
+
+        grid.appendChild(createCard(
+            'Tempo (Classique)', 
+            tempoResNoPV.cost, 
+            tempoResWithPV.cost, 
+            bestId === 'tempo',
+            "Sans changement d'habitude de consommation.",
+            '',
+            '',
+            true // isPositiveMsg flag
+        ));
+
+        // Optimized Tempo
+        const diffVsClassic = tempoResWithPV.cost - tempoOptimizedCost;
+        const diffVsBase = baseCostWithPV - tempoOptimizedCost;
+        
+        const savingsText = `
+            <div>Economie vs Tempo (Classique): <strong>${formatNumber(diffVsClassic)} €</strong></div>
+            <div>Economie vs Base: <strong>${formatNumber(diffVsBase)} €</strong></div>
+        `;
+
+        grid.appendChild(createCard(
+            'Tempo (Optimisé)',
+            tempoOptimizedCostNoPV, 
+            tempoOptimizedCost,
+            false, 
+            "Avec report 50% HP Rouge vers HP Blanc.", 
+            'card-optimized',
+            diffVsClassic > 0 ? savingsText : null
+        ));
     }
+
+    // Calculer le coût Tempo Optimisé sans PV pour le graphique (already computed above)
+    // const tempoOptimizedResNoPV = computeCostTempoOptimizedForRecords(records);
+    // const tempoOptimizedCostNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) ? tempoOptimizedResNoPV.cost + subTempo : 0;
 
     // render small bar chart (include Tempo)
     let labels, values, bgColors;
     if (isPvEnabled) {
-        labels = ['Base (sans PV)','Base (avec PV)','HP/HC (sans PV)','HP/HC (avec PV)','Tempo (sans PV)','Tempo (avec PV)'];
-        values = [baseCostNoPV, baseCostWithPV, hpCostNoPV, hpCostWithPV, tempoResNoPV.cost, tempoResWithPV.cost];
-        bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9'];
+        labels = ['Base (sans PV)','Base (avec PV)','HP/HC (sans PV)','HP/HC (avec PV)','Tempo (sans PV)','Tempo (avec PV)','Tempo Opt. (sans PV)','Tempo Opt. (avec PV)'];
+        values = [baseCostNoPV, baseCostWithPV, hpCostNoPV, hpCostWithPV, tempoResNoPV.cost, tempoResWithPV.cost, tempoOptimizedCostNoPV, tempoOptimizedCost];
+        bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9','#117a8b','#17a2b8'];
     } else {
-        labels = ['Base','HP/HC','Tempo'];
-        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost];
-        bgColors = ['#4e79a7','#f28e2b','#59a14f'];
+        labels = ['Base','HP/HC','Tempo','Tempo Opt.'];
+        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCost];
+        bgColors = ['#4e79a7','#f28e2b','#59a14f','#17a2b8'];
     }
 
     const ctx = offersCanvas.getContext('2d');
@@ -1502,85 +1787,84 @@
     const pvReportContent = document.getElementById('pv-report-content');
     if(pvReportSec && pvReportContent){
         if(isPvEnabled){
-            pvReportSec.classList.remove('hidden');
-            pvReportContent.innerHTML = '';
-            
-            const roiYearsTarget = Number((document.getElementById('pv-roi-years')||{}).value) || 15;
-            const titleEl = document.getElementById('pv-report-title');
-            if(titleEl) titleEl.textContent = `Rapport de Rentabilité Photovoltaïque (${roiYearsTarget} ans)`;
-
-            // --- Calculate Optimal Config for Comparison ---
-            const region = (document.getElementById('pv-region')||{}).value || 'centre';
-            const costBase = Number((document.getElementById('pv-cost-base')||{}).value) || 500;
-            const costPanel = Number((document.getElementById('pv-cost-panel')||{}).value) || 200;
-            const talon = Number((document.getElementById('pv-standby')||{}).value) || 50;
-            
-            const bestConfig = findBestPVConfig(records, talon, roiYearsTarget, costBase, costPanel, region, exportPrice);
-            
-            // Add Recommendation Block
-            const recDiv = document.createElement('div');
-            recDiv.style.gridColumn = '1 / -1';
-            recDiv.className = 'alert alert-info';
-            recDiv.style.marginBottom = '15px';
-            recDiv.style.fontSize = '0.95rem';
-            recDiv.innerHTML = `💡 <strong>Analyse Optimisée :</strong> Ci-dessous, la configuration idéale (nombre de panneaux) calculée spécifiquement pour chaque offre afin de maximiser le gain net sur ${roiYearsTarget} ans.`;
-            // pvReportContent.appendChild(recDiv); // Removed as per user request to clean UI
-
-            // Helper for report card
-            const createReportCard = (title, bestCfg) => {
-                const div = document.createElement('div');
-                div.className = 'result-card';
-                div.style.textAlign = 'left';
-                div.style.position = 'relative';
+            try {
+                pvReportSec.classList.remove('hidden');
+                pvReportContent.innerHTML = '';
                 
-                div.innerHTML = `
-                    <h4 style="margin-bottom:10px; color:var(--primary);">${title}</h4>
-                    <div style="font-size:0.9rem; margin-bottom:8px; color:#555;">
-                        Config idéale: <strong>${bestCfg.kwp.toFixed(1)} kWc</strong> (${bestCfg.n} panneaux)<br>
-                        <small>Coût install: ${formatNumber(bestCfg.cost)} €</small>
-                    </div>
-                    <div style="font-size:0.9rem; margin-bottom:4px;">Économie/an: <strong>${formatNumber(bestCfg.savings)} €</strong></div>
-                    <div style="font-size:0.9rem; margin-bottom:4px;">Retour Inv.: <strong>${(bestCfg.cost/bestCfg.savings).toFixed(1)} ans</strong></div>
-                    <div style="font-size:0.9rem; margin-top:8px; padding-top:8px; border-top:1px solid #eee;">
-                        Gain Net (${roiYearsTarget} ans):<br>
-                        <span style="font-size:1.1rem; font-weight:bold; color:${bestCfg.gain > 0 ? 'var(--success)' : 'var(--danger)'}">${formatNumber(bestCfg.gain)} €</span>
-                    </div>
-                    <button class="btn-apply-config">
-                        <span>⚡</span> Appliquer cette config
-                    </button>
-                `;
+                const roiYearsTarget = Number((document.getElementById('pv-roi-years')||{}).value) || 15;
+                const titleEl = document.getElementById('pv-report-title');
+                if(titleEl) titleEl.textContent = `Rapport de Rentabilité Photovoltaïque (${roiYearsTarget} ans)`;
+
+                // --- Calculate Optimal Config for Comparison ---
+                const region = (document.getElementById('pv-region')||{}).value || 'centre';
+                const costBase = Number((document.getElementById('pv-cost-base')||{}).value) || 500;
+                const costPanel = Number((document.getElementById('pv-cost-panel')||{}).value) || 200;
+                const talon = Number((document.getElementById('pv-standby')||{}).value) || 50;
                 
-                const btn = div.querySelector('.btn-apply-config');
-                btn.addEventListener('click', () => {
-                    const elKwp = document.getElementById('pv-kwp');
-                    if(elKwp) {
-                        elKwp.value = bestCfg.kwp.toFixed(1);
-                        // Trigger change event to update simulation automatically
-                        elKwp.dispatchEvent(new Event('change'));
-                    }
+                const bestConfig = findBestPVConfig(records, talon, roiYearsTarget, costBase, costPanel, region, exportPrice);
+                
+                // Helper for report card
+                const createReportCard = (title, bestCfg) => {
+                    const div = document.createElement('div');
+                    div.className = 'result-card';
+                    div.style.textAlign = 'left';
+                    div.style.position = 'relative';
                     
-                    // Visual feedback
-                    btn.innerHTML = '<span>✅</span> Config appliquée !';
-                    btn.classList.add('applied');
+                    div.innerHTML = `
+                        <h4 style="margin-bottom:10px; color:var(--primary);">${title}</h4>
+                        <div style="font-size:0.9rem; margin-bottom:8px; color:#555;">
+                            Config idéale: <strong>${bestCfg.kwp.toFixed(1)} kWc</strong> (${bestCfg.n} panneaux)<br>
+                            <small>Coût install: ${formatNumber(bestCfg.cost)} €</small>
+                        </div>
+                        <div style="font-size:0.9rem; margin-bottom:4px;">Économie/an: <strong>${formatNumber(bestCfg.savings)} €</strong></div>
+                        <div style="font-size:0.9rem; margin-bottom:4px;">Retour Inv.: <strong>${(bestCfg.cost/bestCfg.savings).toFixed(1)} ans</strong></div>
+                        <div style="font-size:0.9rem; margin-top:8px; padding-top:8px; border-top:1px solid #eee;">
+                            Gain Net (${roiYearsTarget} ans):<br>
+                            <span style="font-size:1.1rem; font-weight:bold; color:${bestCfg.gain > 0 ? 'var(--success)' : 'var(--danger)'}">${formatNumber(bestCfg.gain)} €</span>
+                        </div>
+                        <button class="btn-apply-config">
+                            <span>⚡</span> Appliquer cette config
+                        </button>
+                    `;
                     
-                    setTimeout(() => { 
-                        btn.innerHTML = '<span>⚡</span> Appliquer cette config'; 
-                        btn.classList.remove('applied');
-                    }, 2000);
-                });
+                    const btn = div.querySelector('.btn-apply-config');
+                    btn.addEventListener('click', () => {
+                        const elKwp = document.getElementById('pv-kwp');
+                        if(elKwp) {
+                            elKwp.value = bestCfg.kwp.toFixed(1);
+                            // Trigger change event to update simulation automatically
+                            elKwp.dispatchEvent(new Event('change'));
+                        }
+                        
+                        // Visual feedback
+                        btn.innerHTML = '<span>✅</span> Config appliquée !';
+                        btn.classList.add('applied');
+                        
+                        setTimeout(() => { 
+                            btn.innerHTML = '<span>⚡</span> Appliquer cette config'; 
+                            btn.classList.remove('applied');
+                        }, 2000);
+                    });
 
-                return div;
-            };
+                    return div;
+                };
 
-            // Base
-            pvReportContent.appendChild(createReportCard('Option Base', bestConfig.base));
+                // Base
+                pvReportContent.appendChild(createReportCard('Option Base', bestConfig.base));
 
-            // HP/HC
-            pvReportContent.appendChild(createReportCard('Option HP/HC', bestConfig.hphc));
+                // HP/HC
+                pvReportContent.appendChild(createReportCard('Option HP/HC', bestConfig.hphc));
 
-            // Tempo
-            pvReportContent.appendChild(createReportCard('Option Tempo', bestConfig.tempo));
+                // Tempo
+                pvReportContent.appendChild(createReportCard('Option Tempo', bestConfig.tempo));
 
+                // Tempo Optimized
+                pvReportContent.appendChild(createReportCard('Option Tempo (Optimisé)', bestConfig.tempoOpt));
+
+            } catch(e) {
+                console.warn('Erreur affichage rapport PV:', e);
+                appendAnalysisLog('Erreur lors du calcul de rentabilité PV. Vérifiez vos paramètres.');
+            }
         } else {
             pvReportSec.classList.add('hidden');
         }
@@ -1597,6 +1881,8 @@
       const hphcPricePVSeries = monthly.map(m=> m.consumption>0 ? (m.hphcPV.energy / m.consumption) : null);
       const tempoPriceSeries = monthly.map(m=> m.consumption>0 ? (m.tempo.energy / m.consumption) : null);
       const tempoPricePVSeries = monthly.map(m=> m.consumption>0 ? (m.tempoPV.energy / m.consumption) : null);
+      const tempoOptPriceSeries = monthly.map(m=> m.consumption>0 ? (m.tempoOpt.energy / m.consumption) : null);
+      const tempoOptPricePVSeries = monthly.map(m=> m.consumption>0 ? (m.tempoOptPV.energy / m.consumption) : null);
       const pvProdSeries = monthly.map(m=> m.monthPV || 0);
       const pc = document.getElementById('price-pv-chart');
       if(pc){
@@ -1616,6 +1902,10 @@
         datasets.push({ type:'line', yAxisID:'yPrice', label:'Prix Tempo (€/kWh)', data: tempoPriceSeries, borderColor:'#59a14f', backgroundColor:'#59a14f33', fill:false, tension:0.1 });
         if(isPvEnabled) datasets.push({ type:'line', yAxisID:'yPrice', label:'Prix Tempo (avec PV)', data: tempoPricePVSeries, borderColor:'#bfe5b9', backgroundColor:'#bfe5b933', fill:false, tension:0.1 });
         
+        // Tempo Opt
+        datasets.push({ type:'line', yAxisID:'yPrice', label:'Prix Tempo Opt. (€/kWh)', data: tempoOptPriceSeries, borderColor:'#117a8b', backgroundColor:'#117a8b33', fill:false, tension:0.1 });
+        if(isPvEnabled) datasets.push({ type:'line', yAxisID:'yPrice', label:'Prix Tempo Opt. (avec PV)', data: tempoOptPricePVSeries, borderColor:'#17a2b8', backgroundColor:'#17a2b833', fill:false, tension:0.1 });
+
         // PV Bar
         if(isPvEnabled) datasets.push({ type:'bar', yAxisID:'yKwh', label:'Production PV (kWh)', data: pvProdSeries, backgroundColor:'#f1c40f55' });
 
@@ -2100,10 +2390,14 @@
         // If we just toggled, we might want to refresh the offers comparison
         // But only if we are not in the middle of an analysis
         try {
-            const btnCompare = document.getElementById('btn-compare-offers');
-            if (btnCompare) btnCompare.click();
-            // Also update monthly breakdown to reflect PV toggle state
-            if (typeof renderMonthlyBreakdown === 'function') renderMonthlyBreakdown();
+            // Use btn-calc-pv as master trigger to ensure PV charts are rendered correctly
+            const btnCalcTrigger = document.getElementById('btn-calc-pv');
+            if (btnCalcTrigger) {
+                btnCalcTrigger.click();
+            } else {
+                const btnCompare = document.getElementById('btn-compare-offers');
+                if (btnCompare) btnCompare.click();
+            }
         } catch(e) {}
     }
   }
