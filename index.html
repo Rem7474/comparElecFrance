@@ -118,7 +118,7 @@
              <h2 class="card-title" style="margin:0">Paramètres & Simulation</h2>
              <div style="display:flex; align-items:center;">
                 <label class="switch">
-                  <input type="checkbox" id="toggle-pv" checked>
+                  <input type="checkbox" id="toggle-pv">
                   <span class="slider"></span>
                 </label>
                 <label for="toggle-pv" style="margin:0; cursor:pointer; font-weight:600;">Activer Photovoltaïque</label>
@@ -228,6 +228,16 @@
         </div>
       </section>
 
+      <!-- PV Profitability Report -->
+      <section id="pv-report-section" class="card mb-4 hidden">
+        <div class="card-header">
+            <h2 class="card-title" id="pv-report-title">Rapport de Rentabilité Photovoltaïque</h2>
+        </div>
+        <div id="pv-report-content" class="grid-3">
+            <!-- Injected via JS -->
+        </div>
+      </section>
+
       <!-- Results Section -->
       <section class="card mb-4">
         <div class="card-header">
@@ -258,15 +268,6 @@
         </div>
       </section>
 
-      <!-- PV Profitability Report -->
-      <section id="pv-report-section" class="card mb-4 hidden">
-        <div class="card-header">
-            <h2 class="card-title" id="pv-report-title">Rapport de Rentabilité Photovoltaïque</h2>
-        </div>
-        <div id="pv-report-content" class="grid-3">
-            <!-- Injected via JS -->
-        </div>
-      </section>
 
       <!-- Monthly Details -->
       <section class="card mb-4">
