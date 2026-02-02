@@ -80,14 +80,14 @@
 
   // Default tariffs and settings (centralized here — these values are used for comparisons)
   const DEFAULTS = {
-    priceBase: 0.1952,
-    subBase: 19.39,
-    hp: { php: 0.2081, phc: 0.1635, hcRange: '22-06', sub: 19.81 },
+    priceBase: 0.1940,
+    subBase: 15.65,
+    hp: { php: 0.2065, phc: 0.1579, hcRange: '22-06', sub: 15.65 },
   tempo: {
-      blue: { hp: 0.1494, hc: 0.1232 },
-      white: { hp: 0.1730, hc: 0.1391 },
-      red: { hp: 0.6468, hc: 0.1460 },
-      sub: 19.49,
+      blue: { hp: 0.1612, hc: 0.1325 },
+      white: { hp: 0.1871, hc: 0.1499 },
+      red: { hp: 0.7060, hc: 0.1575 },
+      sub: 15.59,
       hcRange: '22-06',
       approxPct: { B:0.80, W:0.15, R:0.05 }
     },
@@ -107,11 +107,11 @@
 
   // --- Automatic Power & Subscription Detection ---
   const SUBSCRIPTION_GRID = {
-      // Prices in €/month (Approx TTC 2024/2025)
+      // Prices in €/month (Approx TTC Février 2025)
       // kVA: price
-      base: { 3: 11.73, 6: 15.47, 9: 19.39, 12: 23.32, 15: 27.06, 18: 30.76, 24: 38.79, 30: 46.44, 36: 54.29 },
-      hphc: { 6: 15.74, 9: 19.81, 12: 23.76, 15: 27.49, 18: 31.34, 24: 39.47, 30: 47.02, 36: 54.61 }, 
-      tempo: { 6: 15.50, 9: 19.49, 12: 23.38, 15: 27.01, 18: 30.79, 30: 46.31, 36: 54.43 }
+      base: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
+      hphc: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }, 
+      tempo: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 }
   };
 
   function getPriceForPower(type, kva) {
