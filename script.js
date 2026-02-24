@@ -78,55 +78,90 @@
   const tempoLoading = { container: document.getElementById('tempo-loading'), fill: null, text: null, total: 0, done: 0 };
   try{ tempoLoading.fill = document.getElementById('tempo-loading-fill'); tempoLoading.text = document.getElementById('tempo-loading-text'); }catch(e){}
 
-  // Default tariffs and settings (centralized here — each tariff now includes its own subscription grid)
-  const DEFAULTS = {
-    // Base tariff: flat rate (€/kWh) + subscription grid (€/month by kVA)
-    base: {
-      price: 0.1940,
-      subscriptions: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
-    },
-    // HP/HC tariff: 2 rates + HC range + subscription grid (€/month by kVA)
-    hphc: {
-      php: 0.2065,
-      phc: 0.1579,
-      hcRange: '22-06',
-      subscriptions: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
-    },
-    // Tempo tariff: 3 color rates + HC range + subscription grid (€/month by kVA)
-    tempo: {
-      blue: { hp: 0.1612, hc: 0.1325 },
-      white: { hp: 0.1871, hc: 0.1499 },
-      red: { hp: 0.7060, hc: 0.1575 },
-      hcRange: '22-06',
-      subscriptions: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 },
-      approxPct: { B: 0.80, W: 0.15, R: 0.05 }
-    },
-    // Total Charge: 3-tier rates (HP/HC/HSC) + hour ranges + subscription grid (€/month by kVA)
-    totalCharge: {
-      php: 0.2305,
-      phc: 0.1579,
-      phsc: 0.1337,
-      hpRange: '07-23',
-      hcRange: '23-02;06-07',
-      hscRange: '02-06',
-      subscriptions: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
-    },
-    // PV and misc settings
-    injectionPrice: 0,
-    monthlySolarWeightsRaw: [0.6, 0.7, 0.9, 1.1, 1.2, 1.3, 1.3, 1.2, 1.0, 0.8, 0.6, 0.5],
-    tempoApi: {
+  // ============================================================
+  // TARIFF SYSTEM - Dynamic loading from JSON files
+  // ============================================================
+  
+  // Global tariff storage (loaded dynamically)
+  let TARIFFS = {}; // { id: tariff_config }
+  let DEFAULTS = {}; // backward compatibility wrapper
+  
+  // List of tariff files to load (can be extended)
+  const TARIFF_FILES = [
+    'tariffs/base.json',
+    'tariffs/hphc.json',
+    'tariffs/tempo.json',
+    'tariffs/tempoOptimized.json',
+    'tariffs/totalCharge.json'
+  ];
+
+  /**
+   * Load all tariff files dynamically
+   */
+  async function loadTariffs() {
+    try {
+      for (const file of TARIFF_FILES) {
+        const response = await fetch(file);
+        if (!response.ok) {
+          console.warn(`Failed to load tariff: ${file} (status ${response.status})`);
+          continue;
+        }
+        const tariff = await response.json();
+        if (tariff.id) {
+          TARIFFS[tariff.id] = tariff;
+        }
+      }
+      console.log('Loaded tariffs:', Object.keys(TARIFFS));
+      
+      // Set up backward compatibility wrapper
+      updateDEFAULTSWrapper();
+      return true;
+    } catch (e) {
+      console.error('Error loading tariffs:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Update DEFAULTS wrapper for backward compatibility
+   */
+  function updateDEFAULTSWrapper() {
+    // Copy tariff configs into DEFAULTS object for backward compat
+    if (TARIFFS.base) DEFAULTS.base = TARIFFS.base;
+    if (TARIFFS.hphc) DEFAULTS.hphc = TARIFFS.hphc;
+    if (TARIFFS.tempo) DEFAULTS.tempo = TARIFFS.tempo;
+    if (TARIFFS.totalCharge) DEFAULTS.totalCharge = TARIFFS.totalCharge;
+    
+    // Add static settings
+    DEFAULTS.injectionPrice = 0;
+    DEFAULTS.monthlySolarWeightsRaw = [0.6, 0.7, 0.9, 1.1, 1.2, 1.3, 1.3, 1.2, 1.0, 0.8, 0.6, 0.5];
+    DEFAULTS.tempoApi = {
       enabled: true,
       baseUrl: 'https://www.api-couleur-tempo.fr/api',
       perDayThrottleMs: 120,
       concurrency: 6,
       storageKey: 'comparatifElec.tempoDayMap'
-    }
-  };
-  // Normalize monthly solar weights
-  DEFAULTS.monthlySolarWeights = (function() {
+    };
+    
+    // Normalize monthly solar weights
     const s = DEFAULTS.monthlySolarWeightsRaw.reduce((a, b) => a + b, 0);
-    return DEFAULTS.monthlySolarWeightsRaw.map(v => v / s);
-  })();
+    DEFAULTS.monthlySolarWeights = DEFAULTS.monthlySolarWeightsRaw.map(v => v / s);
+  }
+
+  /**
+   * Get list of active tariff IDs (for iterations in comparisons)
+   */
+  function getActiveTariffIds() {
+    return Object.keys(TARIFFS);
+  }
+
+  /**
+   * Get tariff by ID
+   */
+  function getTariff(id) {
+    return TARIFFS[id] || null;
+  }
+
 
   function getPriceForPower(type, kva) {
       const tariff = DEFAULTS[type];
@@ -893,6 +928,10 @@
   function applyMonthlyReduction(records, reduction){ const total = records.reduce((s,r)=> s + (Number(r.valeur)||0), 0); if(total<=0) return records.map(r=> ({...r})); const factor = Math.max(0, (total - reduction)) / total; return records.map(r=> ({ ...r, valeur: (Number(r.valeur)||0) * factor })); }
 
   function computeMonthlyBreakdown(records){
+    // Get selected kVA for subscription pricing
+    const kva = window.currentKva || 6;
+    const monthlySolarWeights = DEFAULTS.monthlySolarWeights;
+    
     // group by month
     const months = {};
     for(const r of records){ const k = monthKeyFromDateStr(r.dateDebut); if(!months[k]) months[k]=[]; months[k].push(r); }
@@ -917,22 +956,22 @@
 
       // costs without PV
   const baseEnergy = computeCostBaseForRecords(recs);
-  const subBase = Number(DEFAULTS.subBase)||0;
+  const subBase = getPriceForPower('base', kva);
   const baseTotal = baseEnergy + subBase;
 
       const hphcEnergyObj = computeCostHPHCForRecords(recs);
-  const subHphc = Number(DEFAULTS.hp.sub)||0;
+  const subHphc = getPriceForPower('hphc', kva);
   const hphcTotal = hphcEnergyObj.cost + subHphc;
 
       const tempoEnergyObj = computeCostTempoForRecords(recs);
-  const subTempo = Number(DEFAULTS.tempo.sub)||0;
+  const subTempo = getPriceForPower('tempo', kva);
   const tempoTotal = (tempoEnergyObj && tempoEnergyObj.cost) ? tempoEnergyObj.cost + subTempo : 0;
 
       const tempoOptEnergyObj = computeCostTempoOptimizedForRecords(recs);
       const tempoOptTotal = (tempoOptEnergyObj && tempoOptEnergyObj.cost) ? tempoOptEnergyObj.cost + subTempo : 0;
 
       const tcEnergyObj = computeCostTotalChargeForRecords(recs);
-      const subTc = DEFAULTS.totalCharge?.subscriptions[kva] || 15.65;
+      const subTc = getPriceForPower('totalCharge', kva);
       const tcTotal = (tcEnergyObj && tcEnergyObj.cost) ? tcEnergyObj.cost + subTc : 0;
 
       // with PV: reduce consumption by monthSelf proportionally across records
@@ -2714,6 +2753,14 @@
       }
     });
   }
+  
+  // Initialize tariff system at startup
+  (async () => {
+    const success = await loadTariffs();
+    if (!success) {
+      console.error('Failed to load tariff files. Application may not function correctly.');
+    }
+  })();
   
   // Expose for auto-run
   window.calculateStandbyFromRecords = calculateStandbyFromRecords;
