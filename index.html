@@ -270,7 +270,7 @@
         <!-- Hidden legacy log for compatibility if needed, or we repurpose it -->
         <div id="offers-results" class="hidden"></div>
         <div id="pv-results" class="hidden"></div>
-        <div id="analysis-log" class="hidden"></div>
+        <!-- supprimé : doublon analysis-log -->
         <div id="summary-metrics" class="hidden"></div>
 
         <!-- Charts Row 2 -->
@@ -343,6 +343,6 @@
     </footer>
   </div>
   <script src="csvToEnedisJson.js"></script>
-  <script src="script.js"></script>
+  <script type="module" src="src/app.js"></script>
 </body>
 </html>
