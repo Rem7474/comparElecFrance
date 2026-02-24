@@ -276,6 +276,18 @@ export async function triggerFullRecalculation() {
       pvEl.textContent = pvResult ? `Prod. PV estimée : ${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh, autoconsommation : ${pvResult.autoconsommationPct.toFixed(1)}%` : 'Simulation PV indisponible';
     }
 
+    // Affichage Informations Tarifs (seulement si records chargés)
+    const infoTarifEl = document.getElementById('defaults-display');
+    if (infoTarifEl) {
+      if (records && records.length > 0) {
+        infoTarifEl.textContent = JSON.stringify(appState.tariffs, null, 2);
+        infoTarifEl.parentElement.classList.remove('hidden');
+      } else {
+        infoTarifEl.textContent = '';
+        infoTarifEl.parentElement.classList.add('hidden');
+      }
+    }
+
     // c) Ventilation mensuelle
     const monthly = Array(12).fill(0);
     for (const r of records) {

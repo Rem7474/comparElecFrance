@@ -1,3 +1,21 @@
+/**
+ * API simplifiée pour l’UI : simulation PV
+ * Retourne production, autoconsommation, économies estimées
+ */
+export function simulateSolarProduction(records, config) {
+  // config : { region, puissance, orientation, inclinaison, standbyW }
+  const region = config.region || 'centre';
+  const puissance = Number(config.puissance) || 3;
+  const standbyW = Number(config.standbyW) || 0;
+  const annualProductionKwh = pvYieldPerKwp(region) * puissance;
+  const sim = simulatePVEffect(records, annualProductionKwh, 0, standbyW);
+  return {
+    production: annualProductionKwh,
+    autoconsommationPct: sim.estimatedAutoPct,
+    economieEstimee: sim.selfConsumed * 0.194, // base tarif (à affiner)
+    details: sim
+  };
+}
 // src/pvSimulation.js
 // Simulation et helpers PV pour comparElecFrance
 
