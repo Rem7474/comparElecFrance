@@ -78,31 +78,42 @@
   const tempoLoading = { container: document.getElementById('tempo-loading'), fill: null, text: null, total: 0, done: 0 };
   try{ tempoLoading.fill = document.getElementById('tempo-loading-fill'); tempoLoading.text = document.getElementById('tempo-loading-text'); }catch(e){}
 
-  // Default tariffs and settings (centralized here — these values are used for comparisons)
+  // Default tariffs and settings (centralized here — each tariff now includes its own subscription grid)
   const DEFAULTS = {
-    priceBase: 0.1940,
-    subBase: 15.65,
-    hp: { php: 0.2065, phc: 0.1579, hcRange: '22-06', sub: 15.65 },
-  tempo: {
+    // Base tariff: flat rate (€/kWh) + subscription grid (€/month by kVA)
+    base: {
+      price: 0.1940,
+      subscriptions: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
+    },
+    // HP/HC tariff: 2 rates + HC range + subscription grid (€/month by kVA)
+    hphc: {
+      php: 0.2065,
+      phc: 0.1579,
+      hcRange: '22-06',
+      subscriptions: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
+    },
+    // Tempo tariff: 3 color rates + HC range + subscription grid (€/month by kVA)
+    tempo: {
       blue: { hp: 0.1612, hc: 0.1325 },
       white: { hp: 0.1871, hc: 0.1499 },
       red: { hp: 0.7060, hc: 0.1575 },
-      sub: 15.59,
       hcRange: '22-06',
-      approxPct: { B:0.80, W:0.15, R:0.05 }
+      subscriptions: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 },
+      approxPct: { B: 0.80, W: 0.15, R: 0.05 }
     },
-  totalChargeHeures: {
+    // Total Charge: 3-tier rates (HP/HC/HSC) + hour ranges + subscription grid (€/month by kVA)
+    totalCharge: {
       php: 0.2305,
       phc: 0.1579,
       phsc: 0.1337,
-      sub: 15.65,
       hpRange: '07-23',
       hcRange: '23-02;06-07',
-      hscRange: '02-06'
+      hscRange: '02-06',
+      subscriptions: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }
     },
-  injectionPrice: 0,
-    // monthly weights for PV distribution (normalized internally)
-    monthlySolarWeightsRaw: [0.6,0.7,0.9,1.1,1.2,1.3,1.3,1.2,1.0,0.8,0.6,0.5],
+    // PV and misc settings
+    injectionPrice: 0,
+    monthlySolarWeightsRaw: [0.6, 0.7, 0.9, 1.1, 1.2, 1.3, 1.3, 1.2, 1.0, 0.8, 0.6, 0.5],
     tempoApi: {
       enabled: true,
       baseUrl: 'https://www.api-couleur-tempo.fr/api',
@@ -111,30 +122,25 @@
       storageKey: 'comparatifElec.tempoDayMap'
     }
   };
-  // normalized weights cached
-  DEFAULTS.monthlySolarWeights = (function(){ const s = DEFAULTS.monthlySolarWeightsRaw.reduce((a,b)=>a+b,0); return DEFAULTS.monthlySolarWeightsRaw.map(v=> v / s); })();
-
-  // --- Automatic Power & Subscription Detection ---
-  const SUBSCRIPTION_GRID = {
-      // Prices in €/month (Approx TTC Février 2025)
-      // kVA: price
-      base: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
-      hphc: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 }, 
-      tempo: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 }
-  };
+  // Normalize monthly solar weights
+  DEFAULTS.monthlySolarWeights = (function() {
+    const s = DEFAULTS.monthlySolarWeightsRaw.reduce((a, b) => a + b, 0);
+    return DEFAULTS.monthlySolarWeightsRaw.map(v => v / s);
+  })();
 
   function getPriceForPower(type, kva) {
-      const grid = SUBSCRIPTION_GRID[type];
-      if (!grid) return 0;
+      const tariff = DEFAULTS[type];
+      if (!tariff || !tariff.subscriptions) return 0;
+      const grid = tariff.subscriptions;
       if (grid[kva]) return grid[kva];
 
-      // If exact kVA not found (e.g. 24 kVA in Tempo), find the next available higher power
-      const avail = Object.keys(grid).map(Number).sort((a,b)=>a-b);
+      // If exact kVA not found, find the next available higher power
+      const avail = Object.keys(grid).map(Number).sort((a, b) => a - b);
       const upper = avail.find(p => p >= kva);
       if (upper) return grid[upper];
       
       // Fallback to max or default
-      return grid[avail[avail.length-1]] || 0;
+      return grid[avail[avail.length - 1]] || 0;
   }
 
   function updateSubscriptionDefault(kva){
@@ -142,23 +148,25 @@
       const safeKva = Number(kva);
       if(isNaN(safeKva)) return;
 
-      // Update DEFAULTS with grid prices (fallback to 6kVA or closest available)
+      // Get subscription prices for this kVA from each tariff
       const b = getPriceForPower('base', safeKva) || 15.47;
       const hp = getPriceForPower('hphc', safeKva) || 15.74;
       const tm = getPriceForPower('tempo', safeKva) || 15.50;
+      const tc = getPriceForPower('totalCharge', safeKva) || 15.65;
 
-      DEFAULTS.subBase = b;
-      DEFAULTS.hp.sub = hp;
-      DEFAULTS.tempo.sub = tm;
+      // Store current kVA selection
+      window.currentKva = safeKva;
 
-      // Update Inputs
+      // Update UI inputs if they exist
       const inpBase = document.getElementById('param-sub-base');
       const inpHp = document.getElementById('param-sub-hphc');
       const inpTempo = document.getElementById('param-sub-tempo');
+      const inpTc = document.getElementById('param-sub-totalCharge');
       
-      if(inpBase) inpBase.value = b.toFixed(2);
-      if(inpHp) inpHp.value = hp.toFixed(2);
-      if(inpTempo) inpTempo.value = tm.toFixed(2);
+      if (inpBase) inpBase.value = b.toFixed(2);
+      if (inpHp) inpHp.value = hp.toFixed(2);
+      if (inpTempo) inpTempo.value = tm.toFixed(2);
+      if (inpTc) inpTc.value = tc.toFixed(2);
       
       populateDefaultsDisplay();
   }
@@ -823,7 +831,7 @@
     return `${y}-${m}`;
   }
 
-  function computeCostBaseForRecords(records){ const p = Number(DEFAULTS.priceBase)||0; return records.reduce((s,r)=> s + (Number(r.valeur)||0) * p, 0); }
+  function computeCostBaseForRecords(records) { const p = Number(DEFAULTS.base?.price) || 0; return records.reduce((s, r) => s + (Number(r.valeur) || 0) * p, 0); }
   function computeCostHPHCForRecords(records){ const php = Number(DEFAULTS.hp.php)||0; const phc = Number(DEFAULTS.hp.phc)||0; const hcRange = (DEFAULTS.hp.hcRange||'22-06'); let hp=0,hc=0; for(const r of records){ const v = Number(r.valeur)||0; const h = new Date(r.dateDebut).getHours(); if(isHourHC(h,hcRange)){ hc += v * phc; } else { hp += v * php; } } return { cost: hp+hc, hp, hc } }
   function computeCostTempoForRecords(records){ const res = calculateTariffCostTempo(records); return res; }
 
@@ -923,9 +931,9 @@
       const tempoOptEnergyObj = computeCostTempoOptimizedForRecords(recs);
       const tempoOptTotal = (tempoOptEnergyObj && tempoOptEnergyObj.cost) ? tempoOptEnergyObj.cost + subTempo : 0;
 
-      const tchEnergyObj = computeCostTotalChargeHeuresForRecords(recs);
-      const subTch = Number((DEFAULTS.totalChargeHeures||{}).sub)||0;
-      const tchTotal = (tchEnergyObj && tchEnergyObj.cost) ? tchEnergyObj.cost + subTch : 0;
+      const tcEnergyObj = computeCostTotalChargeForRecords(recs);
+      const subTc = DEFAULTS.totalCharge?.subscriptions[kva] || 15.65;
+      const tcTotal = (tcEnergyObj && tcEnergyObj.cost) ? tcEnergyObj.cost + subTc : 0;
 
       // with PV: reduce consumption by monthSelf proportionally across records
       const recsWithPV = applyMonthlyReduction(recs, monthSelf);
@@ -941,8 +949,8 @@
       const tempoOptEnergyObjPV = computeCostTempoOptimizedForRecords(recsWithPV);
       const tempoOptTotalPV = (tempoOptEnergyObjPV && tempoOptEnergyObjPV.cost) ? tempoOptEnergyObjPV.cost + subTempo - ( (monthPV - monthSelf) * exportPrice ) : 0;
 
-      const tchEnergyObjPV = computeCostTotalChargeHeuresForRecords(recsWithPV);
-      const tchTotalPV = (tchEnergyObjPV && tchEnergyObjPV.cost) ? tchEnergyObjPV.cost + subTch - ( (monthPV - monthSelf) * exportPrice ) : 0;
+      const tcEnergyObjPV = computeCostTotalChargeForRecords(recsWithPV);
+      const tcTotalPV = (tcEnergyObjPV && tcEnergyObjPV.cost) ? tcEnergyObjPV.cost + subTc - ( (monthPV - monthSelf) * exportPrice ) : 0;
 
       results.push({ 
           month: k, 
@@ -957,8 +965,8 @@
           tempoPV:{ energy: (tempoEnergyObjPV && tempoEnergyObjPV.cost)||0, total: tempoTotalPV },
           tempoOpt: { energy: tempoOptEnergyObj.cost||0, total: tempoOptTotal },
           tempoOptPV: { energy: tempoOptEnergyObjPV.cost||0, total: tempoOptTotalPV },
-          tch: { energy: tchEnergyObj.cost||0, hp: tchEnergyObj.hp||0, hc: tchEnergyObj.hc||0, hsc: tchEnergyObj.hsc||0, total: tchTotal },
-          tchPV: { energy: (tchEnergyObjPV && tchEnergyObjPV.cost)||0, total: tchTotalPV }
+          tc: { energy: tcEnergyObj.cost||0, hp: tcEnergyObj.hp||0, hc: tcEnergyObj.hc||0, hsc: tcEnergyObj.hsc||0, total: tcTotal },
+          tcPV: { energy: (tcEnergyObjPV && tcEnergyObjPV.cost)||0, total: tcTotalPV }
       });
     }
     return results;
@@ -1003,7 +1011,7 @@
       hphc: Math.max(0, (row.hphc.total||0) - (row.hphcPV.total||0)),
       tempo: Math.max(0, (row.tempo.total||0) - (row.tempoPV.total||0)),
       tempoOpt: Math.max(0, (row.tempoOpt.total||0) - (row.tempoOptPV.total||0)),
-      tch: Math.max(0, (row.tch.total||0) - (row.tchPV.total||0))
+      tc: Math.max(0, (row.tc.total||0) - (row.tcPV.total||0))
     }));
     for(const [i,row] of data.entries()){
       const sv = monthlySavings[i];
@@ -1023,15 +1031,15 @@
                      `<td>${formatNumber(row.tempoOpt.total)}</td>`+
                      `<td>${formatNumber(row.tempoOptPV.total)}</td>`+
                      `<td style="color:#2e7d32">${formatNumber(sv.tempoOpt)}</td>`+
-                     `<td>${formatNumber(row.tch.total)}</td>`+
-                     `<td>${formatNumber(row.tchPV.total)}</td>`+
-                     `<td style="color:#2e7d32">${formatNumber(sv.tch)}</td>`;
+                     `<td>${formatNumber(row.tc.total)}</td>`+
+                     `<td>${formatNumber(row.tcPV.total)}</td>`+
+                     `<td style="color:#2e7d32">${formatNumber(sv.tc)}</td>`;
       } else {
           rowHTML += `<td>${formatNumber(row.base.total)}</td>`+
                      `<td>${formatNumber(row.hphc.total)}</td>`+
                      `<td>${formatNumber(row.tempo.total)}</td>`+
                      `<td>${formatNumber(row.tempoOpt.total)}</td>`+
-                     `<td>${formatNumber(row.tch.total)}</td>`;
+                     `<td>${formatNumber(row.tc.total)}</td>`;
       }
       tr.innerHTML = rowHTML;
       table.appendChild(tr);
@@ -1045,8 +1053,8 @@
         hphc: acc.hphc + (m.hphc||0),
         tempo: acc.tempo + (m.tempo||0),
         tempoOpt: acc.tempoOpt + (m.tempoOpt||0),
-        tch: acc.tch + (m.tch||0)
-        }), {base:0,hphc:0,tempo:0,tempoOpt:0,tch:0});
+        tc: acc.tc + (m.tc||0)
+        }), {base:0,hphc:0,tempo:0,tempoOpt:0,tc:0});
         const totalsBox = document.createElement('div');
         totalsBox.id = 'pv-savings-totals';
         totalsBox.className = 'log';
@@ -1056,11 +1064,11 @@
                             `HP/HC: ${formatNumber(totalSavings.hphc)} € &nbsp; | &nbsp; `+
                             `Tempo: ${formatNumber(totalSavings.tempo)} € &nbsp; | &nbsp; `+
                             `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt)} € &nbsp; | &nbsp; `+
-                            `TCH: ${formatNumber(totalSavings.tch)} €`;
+                            `Total Charge: ${formatNumber(totalSavings.tc)} €`;
         container.appendChild(totalsBox);
     }
 
-    // chart: one dataset per offer (base, basePV, hphc, hphcPV, tempo, tempoPV, tch, tchPV)
+    // chart: one dataset per offer (base, basePV, hphc, hphcPV, tempo, tempoPV, tc, tcPV)
     const labels = data.map(d=> d.month);
     let ds = [];
     if (isPvEnabled) {
@@ -1073,8 +1081,8 @@
             {label:'Tempo (avec PV)', data: data.map(d=> d.tempoPV.total), backgroundColor:'#bfe5b9'},
             {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#117a8b'}, 
             {label:'Tempo Opt. (avec PV)', data: data.map(d=> d.tempoOptPV.total), backgroundColor:'#17a2b8'},
-            {label:'TCH', data: data.map(d=> d.tch.total), backgroundColor:'#d62728'},
-            {label:'TCH (avec PV)', data: data.map(d=> d.tchPV.total), backgroundColor:'#ff9896'}
+            {label:'Total Charge', data: data.map(d=> d.tc.total), backgroundColor:'#d62728'},
+            {label:'Total Charge (avec PV)', data: data.map(d=> d.tcPV.total), backgroundColor:'#ff9896'}
         ];
     } else {
         ds = [ 
@@ -1082,7 +1090,7 @@
             {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, 
             {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'},
             {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#17a2b8'},
-            {label:'TCH', data: data.map(d=> d.tch.total), backgroundColor:'#d62728'}
+            {label:'Total Charge', data: data.map(d=> d.tc.total), backgroundColor:'#d62728'}
         ];
     }
     
@@ -1107,7 +1115,7 @@
                 { label:'Éco. HP/HC (€)', data: monthlySavings.map(m=> m.hphc), backgroundColor:'#00838f33', borderColor:'#00838f', borderWidth:1 },
                 { label:'Éco. Tempo (€)', data: monthlySavings.map(m=> m.tempo), backgroundColor:'#8e24aa33', borderColor:'#8e24aa', borderWidth:1 },
                 { label:'Éco. Tempo Opt. (€)', data: monthlySavings.map(m=> m.tempoOpt), backgroundColor:'#005cbf33', borderColor:'#005cbf', borderWidth:1 },
-                { label:'Éco. TCH (€)', data: monthlySavings.map(m=> m.tch), backgroundColor:'#d6272833', borderColor:'#d62728', borderWidth:1 }
+                { label:'Éco. Total Charge (€)', data: monthlySavings.map(m=> m.tc), backgroundColor:'#d6272833', borderColor:'#d62728', borderWidth:1 }
                 ]
             },
             options: { responsive:true, scales:{ y:{ beginAtZero:true, title:{ display:true, text:'€ / mois économisés' } } }, interaction:{ mode:'index' } }
@@ -1200,28 +1208,64 @@
     if(changed) populateDefaultsDisplay();
     return changed;
   }
-  // Initialize inputs with current values
-  (function(){ try{
-    const sb = document.getElementById('param-sub-base'); if(sb && !sb.value) sb.value = String(DEFAULTS.subBase || '');
-    const sh = document.getElementById('param-sub-hphc'); if(sh && !sh.value) sh.value = String((DEFAULTS.hp||{}).sub || '');
-    const st = document.getElementById('param-sub-tempo'); if(st && !st.value) st.value = String((DEFAULTS.tempo||{}).sub || '');
-    const hpr = document.getElementById('param-tch-hpRange'); if(hpr && !hpr.value) hpr.value = String((DEFAULTS.totalChargeHeures||{}).hpRange || '');
-    const hcr = document.getElementById('param-tch-hcRange'); if(hcr && !hcr.value) hcr.value = String((DEFAULTS.totalChargeHeures||{}).hcRange || '');
-    const hsr = document.getElementById('param-tch-hscRange'); if(hsr && !hsr.value) hsr.value = String((DEFAULTS.totalChargeHeures||{}).hscRange || '');
-    const stch = document.getElementById('param-sub-tch'); if(stch && !stch.value) stch.value = String((DEFAULTS.totalChargeHeures||{}).sub || '');
-  }catch(e){} })();
-  // Apply Total Charge'Heures inputs
-  function applyTotalChargeHeuresInputs(){
+  // Initialize inputs with current values from DEFAULTS
+  (function() {
+    try {
+      const sb = document.getElementById('param-sub-base');
+      if (sb && !sb.value) sb.value = String(DEFAULTS.base?.subscriptions[6] || '');
+      const sh = document.getElementById('param-sub-hphc');
+      if (sh && !sh.value) sh.value = String(DEFAULTS.hphc?.subscriptions[6] || '');
+      const st = document.getElementById('param-sub-tempo');
+      if (st && !st.value) st.value = String(DEFAULTS.tempo?.subscriptions[6] || '');
+      const stc = document.getElementById('param-sub-totalCharge');
+      if (stc && !stc.value) stc.value = String(DEFAULTS.totalCharge?.subscriptions[6] || '');
+      const hpr = document.getElementById('param-tch-hpRange');
+      if (hpr && !hpr.value) hpr.value = String(DEFAULTS.totalCharge?.hpRange || '');
+      const hcr = document.getElementById('param-tch-hcRange');
+      if (hcr && !hcr.value) hcr.value = String(DEFAULTS.totalCharge?.hcRange || '');
+      const hsr = document.getElementById('param-tch-hscRange');
+      if (hsr && !hsr.value) hsr.value = String(DEFAULTS.totalCharge?.hscRange || '');
+    } catch (e) {}
+  })();
+  
+  // Apply Total Charge inputs (renamed from totalChargeHeures to totalCharge)
+  function applyTotalChargeInputs() {
     const hpr = document.getElementById('param-tch-hpRange');
     const hcr = document.getElementById('param-tch-hcRange');
     const hsr = document.getElementById('param-tch-hscRange');
-    const sub = document.getElementById('param-sub-tch');
+    const sub = document.getElementById('param-sub-totalCharge');
     let changed = false;
-    if(hpr && hpr.value){ const v = normalizeHcRange(hpr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hpRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hpRange = v; changed = true; } } }
-    if(hcr && hcr.value){ const v = normalizeHcRange(hcr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hcRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hcRange = v; changed = true; } } }
-    if(hsr && hsr.value){ const v = normalizeHcRange(hsr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hscRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hscRange = v; changed = true; } } }
-    if(sub && sub.value){ const v = Number(sub.value); if(!isNaN(v) && v >= 0){ if((DEFAULTS.totalChargeHeures||{}).sub !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.sub = v; changed = true; } } }
-    if(changed) populateDefaultsDisplay();
+    
+    if (hpr && hpr.value) {
+      const v = normalizeHcRange(hpr.value);
+      if (v && DEFAULTS.totalCharge.hpRange !== v) {
+        DEFAULTS.totalCharge.hpRange = v;
+        changed = true;
+      }
+    }
+    if (hcr && hcr.value) {
+      const v = normalizeHcRange(hcr.value);
+      if (v && DEFAULTS.totalCharge.hcRange !== v) {
+        DEFAULTS.totalCharge.hcRange = v;
+        changed = true;
+      }
+    }
+    if (hsr && hsr.value) {
+      const v = normalizeHcRange(hsr.value);
+      if (v && DEFAULTS.totalCharge.hscRange !== v) {
+        DEFAULTS.totalCharge.hscRange = v;
+        changed = true;
+      }
+    }
+    if (sub && sub.value) {
+      const v = Number(sub.value);
+      if (!isNaN(v) && v >= 0 && DEFAULTS.totalCharge.subscriptions[6] !== v) {
+        DEFAULTS.totalCharge.subscriptions[6] = v;
+        changed = true;
+      }
+    }
+    
+    if (changed) populateDefaultsDisplay();
     return changed;
   }
   // Listen and recalc on changes for subscription prices
@@ -1246,7 +1290,7 @@
       });
     });
   })();
-  // Listen and recalc on changes for Total Charge'Heures
+  // Listen and recalc on changes for Total Charge parameters
   (function(){
     const ids = ['param-tch-hpRange','param-tch-hcRange','param-tch-hscRange','param-sub-tch'];
     ids.forEach(id=>{
@@ -1254,7 +1298,7 @@
       if(!el) return;
       el.addEventListener('change', async ()=>{
         saveSetting(id);
-        const changed = applyTotalChargeHeuresInputs();
+        const changed = applyTotalChargeInputs();
         if(!changed) return;
         try{
           const files = fileInput && fileInput.files;
@@ -1415,23 +1459,23 @@
     cost = hpCost + hcCost; return {cost, hpCost, hcCost};
   }
 
-  // Compute Total Charge'Heures cost for records
-  function computeCostTotalChargeHeuresForRecords(records){
-    const tch = DEFAULTS.totalChargeHeures || {};
+  // Compute Total Charge cost for records (3-tier pricing: HP/HC/HSC)
+  function computeCostTotalChargeForRecords(records) {
+    const tc = DEFAULTS.totalCharge || {};
     let cost = 0, hpCost = 0, hcCost = 0, hscCost = 0;
-    for(const r of records){
-      const v = Number(r.valeur)||0;
+    for (const r of records) {
+      const v = Number(r.valeur) || 0;
       const h = new Date(r.dateDebut).getHours();
-      if(tch.hscRange && isHourHC(h, tch.hscRange)){
-        hscCost += v * (Number(tch.phsc)||0);
-      } else if(isHourHC(h, tch.hcRange)){
-        hcCost += v * (Number(tch.phc)||0);
+      if (tc.hscRange && isHourHC(h, tc.hscRange)) {
+        hscCost += v * (Number(tc.phsc) || 0);
+      } else if (isHourHC(h, tc.hcRange)) {
+        hcCost += v * (Number(tc.phc) || 0);
       } else {
-        hpCost += v * (Number(tch.php)||0);
+        hpCost += v * (Number(tc.php) || 0);
       }
     }
     cost = hpCost + hcCost + hscCost;
-    return {mode:'tch', cost, hp: hpCost, hc: hcCost, hsc: hscCost};
+    return { mode: 'tc', cost, hp: hpCost, hc: hcCost, hsc: hscCost };
   }
 
   // --- Helper: Find Optimal PV Configuration ---
@@ -1441,46 +1485,46 @@
 
       // Pre-compute tariffs
       const tariffs = [];
-      const pBase = Number(DEFAULTS.priceBase) || 0.20;
-      const pHp = Number(DEFAULTS.hp.php)||0.22;
-      const pHc = Number(DEFAULTS.hp.phc)||0.16;
-      const hcRange = (DEFAULTS.hp.hcRange||'22-06');
+      const pBase = Number(DEFAULTS.base?.price) || 0.20;
+      const pHp = Number(DEFAULTS.hphc?.php) || 0.22;
+      const pHc = Number(DEFAULTS.hphc?.phc) || 0.16;
+      const hcRange = (DEFAULTS.hphc?.hcRange || '22-06');
 
       let tempoMap = null;
-      try{ if(typeof __tempoDayMapCache !== 'undefined') tempoMap = __tempoDayMapCache; }catch(e){}
-      if(!tempoMap) tempoMap = generateTempoCalendarAlgorithm(records);
+      try { if (typeof __tempoDayMapCache !== 'undefined') tempoMap = __tempoDayMapCache; } catch (e) {}
+      if (!tempoMap) tempoMap = generateTempoCalendarAlgorithm(records);
 
-      function getTempoPrice(dateStr, h, map){
-         const dKey = dateStr.slice(0,10);
-         const entry = map[dKey] || map[dKey.replace(/\//g,'-')] || 'B';
-         let color = 'blue';
-         if(typeof entry === 'string') color = (entry.toLowerCase() === 'b' ? 'blue' : (entry.toLowerCase() === 'w' ? 'white' : 'red'));
-         else if(entry.color) color = (entry.color.toLowerCase() === 'b' ? 'blue' : (entry.color.toLowerCase() === 'w' ? 'white' : 'red'));
-         let isHC = isHourHC(h, '22-06');
-         if(entry && typeof entry === 'object'){
-            if(entry.hours && entry.hours.length===24) isHC = Boolean(entry.hours[h]);
-            else if(entry.hcRange) isHC = isHourHC(h, entry.hcRange);
-         }
-         const tColor = DEFAULTS.tempo[color];
-         if(!tColor) return 0.15;
-         return isHC ? tColor.hc : tColor.hp;
+      function getTempoPrice(dateStr, h, map) {
+        const dKey = dateStr.slice(0, 10);
+        const entry = map[dKey] || map[dKey.replace(/\//g, '-')] || 'B';
+        let color = 'blue';
+        if (typeof entry === 'string') color = (entry.toLowerCase() === 'b' ? 'blue' : (entry.toLowerCase() === 'w' ? 'white' : 'red'));
+        else if (entry.color) color = (entry.color.toLowerCase() === 'b' ? 'blue' : (entry.color.toLowerCase() === 'w' ? 'white' : 'red'));
+        let isHC = isHourHC(h, '22-06');
+        if (entry && typeof entry === 'object') {
+          if (entry.hours && entry.hours.length === 24) isHC = Boolean(entry.hours[h]);
+          else if (entry.hcRange) isHC = isHourHC(h, entry.hcRange);
+        }
+        const tColor = DEFAULTS.tempo[color];
+        if (!tColor) return 0.15;
+        return isHC ? tColor.hc : tColor.hp;
       }
 
-      for(const r of records){
-          const h = new Date(r.dateDebut).getHours();
-          const isHcStandard = isHourHC(h, hcRange);
-          tariffs.push({
-              base: pBase,
-              hphc: isHcStandard ? pHc : pHp,
-              tempo: getTempoPrice(r.dateDebut, h, tempoMap)
-          });
+      for (const r of records) {
+        const h = new Date(r.dateDebut).getHours();
+        const isHcStandard = isHourHC(h, hcRange);
+        tariffs.push({
+          base: pBase,
+          hphc: isHcStandard ? pHc : pHp,
+          tempo: getTempoPrice(r.dateDebut, h, tempoMap)
+        });
       }
 
       const best = {
-          base: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
-          hphc: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
-          tempo: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 },
-          tempoOpt: { kwp:0, n:0, gain: -Infinity, cost:0, savings:0, ratio:0 }
+        base: { kwp: 0, n: 0, gain: -Infinity, cost: 0, savings: 0, ratio: 0 },
+        hphc: { kwp: 0, n: 0, gain: -Infinity, cost: 0, savings: 0, ratio: 0 },
+        tempo: { kwp: 0, n: 0, gain: -Infinity, cost: 0, savings: 0, ratio: 0 },
+        tempoOpt: { kwp: 0, n: 0, gain: -Infinity, cost: 0, savings: 0, ratio: 0 }
       };
 
       // Helper function to get optimized tempo price per record logic (simplified for cache)
@@ -1607,15 +1651,17 @@
     }
     const monthsCount = Math.max(1, uniqueMonths.size);
 
-    // offers parameters (use current UI prices as defaults)
-    const priceBase = Number(DEFAULTS.priceBase) || 0.18;
-    const hpParams = { mode: 'hp-hc', php: Number(DEFAULTS.hp.php)||0.2, phc: Number(DEFAULTS.hp.phc)||0.12, hcRange: (DEFAULTS.hp.hcRange||'22-06') };
+    // offers parameters (use current tariff config)
+    const priceBase = Number(DEFAULTS.base?.price) || 0.18;
+    const hpParams = { mode: 'hp-hc', php: Number(DEFAULTS.hphc?.php) || 0.2, phc: Number(DEFAULTS.hphc?.phc) || 0.12, hcRange: (DEFAULTS.hphc?.hcRange || '22-06') };
+    const tcParams = { mode: 'totalCharge', php: Number(DEFAULTS.totalCharge?.php) || 0.23, phc: Number(DEFAULTS.totalCharge?.phc) || 0.16, phsc: Number(DEFAULTS.totalCharge?.phsc) || 0.13, hpRange: (DEFAULTS.totalCharge?.hpRange || '07-23'), hcRange: (DEFAULTS.totalCharge?.hcRange || '23-02;06-07'), hscRange: (DEFAULTS.totalCharge?.hscRange || '02-06') };
 
-    // Subscription costs for the period
-    const subBase = (Number(DEFAULTS.subBase)||0) * monthsCount;
-    const subHp = (Number(DEFAULTS.hp.sub)||0) * monthsCount;
-    const subTempo = (Number(DEFAULTS.tempo.sub)||0) * monthsCount;
-    const subTch = (Number((DEFAULTS.totalChargeHeures||{}).sub)||0) * monthsCount;
+    // Subscription costs for the period (get from structure, default to 6kVA)
+    const kva = window.currentKva || 6;
+    const subBase = (DEFAULTS.base?.subscriptions[kva] || 15.65) * monthsCount;
+    const subHp = (DEFAULTS.hphc?.subscriptions[kva] || 15.65) * monthsCount;
+    const subTempo = (DEFAULTS.tempo?.subscriptions[kva] || 15.59) * monthsCount;
+    const subTc = (DEFAULTS.totalCharge?.subscriptions[kva] || 15.65) * monthsCount;
 
     // cost without PV
     const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, {mode:'base'}).cost + subBase;
@@ -1623,9 +1669,9 @@
     // Tempo cost without PV
     const tempoResNoPV = calculateTariffCostTempo(records);
     tempoResNoPV.cost += subTempo;
-    // Total Charge'Heures cost without PV
-    const tchResNoPV = computeCostTotalChargeHeuresForRecords(records);
-    tchResNoPV.cost += subTch;
+    // Total Charge cost without PV
+    const tcResNoPV = computeCostWithProfile(perHourAnnual, priceBase, tcParams);
+    tcResNoPV.cost += subTc;
 
     // simulate PV (take into account standby consumption if provided)
     const standbyW = Number((document.getElementById('pv-standby')||{}).value) || 0;
@@ -1645,8 +1691,8 @@
     }
     const tempoResWithPV = calculateTariffCostTempo(recordsWithPV);
     tempoResWithPV.cost += subTempo;
-    const tchResWithPV = computeCostTotalChargeHeuresForRecords(recordsWithPV);
-    tchResWithPV.cost += subTch;
+    const tcResWithPV = computeCostWithProfile(perHourWithPV, priceBase, tcParams);
+    tcResWithPV.cost += subTc;
 
     // --- Simpson Optimized Tempo (Migration 50% HP Rouge -> HP Blanc) ---
     // Simule un changement de comportement: réduire de moitié la conso en jours rouges (heures pleines)
@@ -1725,7 +1771,7 @@
 
     // Update Dashboard Metrics
     const totalCostEl = document.getElementById('val-total-cost');
-    const minCost = Math.min(baseCostWithPV, hpCostWithPV, (tempoResWithPV && tempoResWithPV.cost ? tempoResWithPV.cost : Infinity), tchResWithPV.cost);
+    const minCost = Math.min(baseCostWithPV, hpCostWithPV, (tempoResWithPV && tempoResWithPV.cost ? tempoResWithPV.cost : Infinity), tcResWithPV.cost);
     if(totalCostEl) totalCostEl.textContent = formatNumber(minCost) + ' €';
     
     const pvProdEl = document.getElementById('val-pv-prod');
@@ -1742,7 +1788,7 @@
         { id: 'base', name: 'Base', val: baseCostWithPV },
         { id: 'hphc', name: 'HP/HC', val: hpCostWithPV },
         { id: 'tempo', name: 'Tempo', val: tempoResWithPV.cost || Infinity },
-        { id: 'tch', name: 'Total Charge\'Heures', val: tchResWithPV.cost }
+        { id: 'tc', name: 'Total Charge', val: tcResWithPV.cost }
     ];
     offerDetails.sort((a,b) => a.val - b.val);
     const bestId = offerDetails[0].id;
@@ -1868,22 +1914,22 @@
             diffVsClassic > 0 ? savingsText : null
         ));
 
-        // Total Charge'Heures
-        const diffTchVsBase = baseCostWithPV - tchResWithPV.cost;
-        const diffTchVsHpHc = hpCostWithPV - tchResWithPV.cost;
-        const tchExtraInfo = diffTchVsBase > 0 ? `
-            <div>Économie vs Base: <strong>${formatNumber(diffTchVsBase)} €</strong></div>
-            <div>Économie vs HP/HC: <strong>${formatNumber(diffTchVsHpHc)} €</strong></div>
+        // Total Charge (formerly "Total Charge'Heures")
+        const diffTcVsBase = baseCostWithPV - tcResWithPV.cost;
+        const diffTcVsHpHc = hpCostWithPV - tcResWithPV.cost;
+        const tcExtraInfo = diffTcVsBase > 0 ? `
+            <div>Économie vs Base: <strong>${formatNumber(diffTcVsBase)} €</strong></div>
+            <div>Économie vs HP/HC: <strong>${formatNumber(diffTcVsHpHc)} €</strong></div>
         ` : null;
 
         grid.appendChild(createCard(
-            'Total Charge\'Heures',
-            tchResNoPV.cost,
-            tchResWithPV.cost,
-            bestId === 'tch',
-            "Tarif à 4 tranches horaires (HP/HC/HSC).",
+            'Total Charge',
+            tcResNoPV.cost,
+            tcResWithPV.cost,
+            bestId === 'tc',
+            "Tarif à 3 tranches horaires (HP/HC/HSC).",
             '',
-            tchExtraInfo,
+            tcExtraInfo,
             true
         ));
     }
@@ -1892,23 +1938,70 @@
     // const tempoOptimizedResNoPV = computeCostTempoOptimizedForRecords(records);
     // const tempoOptimizedCostNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) ? tempoOptimizedResNoPV.cost + subTempo : 0;
 
-    // render small bar chart (include Tempo)
+    // --- CHART 1: Annual Cost Comparison ---
     let labels, values, bgColors;
     if (isPvEnabled) {
-        labels = ['Base (sans PV)','Base (avec PV)','HP/HC (sans PV)','HP/HC (avec PV)','Tempo (sans PV)','Tempo (avec PV)','Tempo Opt. (sans PV)','Tempo Opt. (avec PV)'];
-        values = [baseCostNoPV, baseCostWithPV, hpCostNoPV, hpCostWithPV, tempoResNoPV.cost, tempoResWithPV.cost, tempoOptimizedCostNoPV, tempoOptimizedCost];
-        bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9','#117a8b','#17a2b8'];
+        labels = ['Base\n(sans PV)','Base\n(avec PV)','HP/HC\n(sans PV)','HP/HC\n(avec PV)','Tempo\n(sans PV)','Tempo\n(avec PV)','Tempo Opt.\n(sans PV)','Tempo Opt.\n(avec PV)','Total Charge\n(sans PV)','Total Charge\n(avec PV)'];
+        values = [baseCostNoPV, baseCostWithPV, hpCostNoPV, hpCostWithPV, tempoResNoPV.cost, tempoResWithPV.cost, tempoOptimizedCostNoPV, tempoOptimizedCost, tcResNoPV.cost, tcResWithPV.cost];
+        bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9','#117a8b','#17a2b8','#d62728','#ff9896'];
     } else {
-        labels = ['Base','HP/HC','Tempo','Tempo Opt.'];
-        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCost];
-        bgColors = ['#4e79a7','#f28e2b','#59a14f','#17a2b8'];
+        labels = ['Base','HP/HC','Tempo','Tempo Opt.','Total Charge'];
+        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCost, tcResNoPV.cost];
+        bgColors = ['#4e79a7','#f28e2b','#59a14f','#17a2b8','#d62728'];
     }
 
     const ctx = offersCanvas.getContext('2d');
     if(offersChart){ offersChart.destroy(); offersChart = null; }
    
+    offersChart = new Chart(ctx, { 
+        type: 'bar', 
+        data: { labels, datasets:[{ label: 'Coût annuel (€)', data: values, backgroundColor: bgColors }] }, 
+        options:{ responsive:true, scales:{ y:{ beginAtZero:true } }, plugins: { legend: { display:false } } } 
+    });
 
-    offersChart = new Chart(ctx, { type: 'bar', data: { labels, datasets:[{ label: 'Coût annuel (€)', data: values, backgroundColor: bgColors }] }, options:{ responsive:true, scales:{ y:{ beginAtZero:true } } } });
+    // --- CHART 2: Average Monthly Price per kWh ---
+    const annualConsumption = stats.totalKwh || 1; // avoid division by zero
+    const totalMonths = monthsCount;
+    const monthlyConsumption = annualConsumption / totalMonths;
+    
+    let labels2, values2, bgColors2;
+    if (isPvEnabled) {
+        const basePricePerKwh = baseCostNoPV / annualConsumption;
+        const basePricePerKwhPV = baseCostWithPV / annualConsumption;
+        const hpPricePerKwh = hpCostNoPV / annualConsumption;
+        const hpPricePerKwhPV = hpCostWithPV / annualConsumption;
+        const tempoPricePerKwh = tempoResNoPV.cost / annualConsumption;
+        const tempoPricePerKwhPV = tempoResWithPV.cost / annualConsumption;
+        const tempoOptPricePerKwh = tempoOptimizedCostNoPV / annualConsumption;
+        const tempoOptPricePerKwhPV = tempoOptimizedCost / annualConsumption;
+        const tcPricePerKwh = tcResNoPV.cost / annualConsumption;
+        const tcPricePerKwhPV = tcResWithPV.cost / annualConsumption;
+        
+        labels2 = ['Base\n(sans PV)','Base\n(avec PV)','HP/HC\n(sans PV)','HP/HC\n(avec PV)','Tempo\n(sans PV)','Tempo\n(avec PV)','Tempo Opt.\n(sans PV)','Tempo Opt.\n(avec PV)','Total Charge\n(sans PV)','Total Charge\n(avec PV)'];
+        values2 = [basePricePerKwh, basePricePerKwhPV, hpPricePerKwh, hpPricePerKwhPV, tempoPricePerKwh, tempoPricePerKwhPV, tempoOptPricePerKwh, tempoOptPricePerKwhPV, tcPricePerKwh, tcPricePerKwhPV];
+        bgColors2 = bgColors;
+    } else {
+        const basePricePerKwh = baseCostNoPV / annualConsumption;
+        const hpPricePerKwh = hpCostNoPV / annualConsumption;
+        const tempoPricePerKwh = tempoResNoPV.cost / annualConsumption;
+        const tempoOptPricePerKwh = tempoOptimizedCost / annualConsumption;
+        const tcPricePerKwh = tcResNoPV.cost / annualConsumption;
+        
+        labels2 = ['Base','HP/HC','Tempo','Tempo Opt.','Total Charge'];
+        values2 = [basePricePerKwh, hpPricePerKwh, tempoPricePerKwh, tempoOptPricePerKwh, tcPricePerKwh];
+        bgColors2 = bgColors;
+    }
+    
+    // Render second chart if canvas exists
+    const ctx2 = document.getElementById('offers-price-chart');
+    if (ctx2) {
+        if (window.priceChart) { window.priceChart.destroy(); window.priceChart = null; }
+        window.priceChart = new Chart(ctx2.getContext('2d'), {
+            type: 'bar',
+            data: { labels: labels2, datasets: [{ label: 'Prix moyen €/kWh', data: values2, backgroundColor: bgColors2 }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+        });
+    }
 
     appendAnalysisLog('Comparaison terminée.');
 
