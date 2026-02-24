@@ -1997,7 +1997,7 @@
         bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9','#117a8b','#17a2b8','#d62728','#ff9896'];
     } else {
         labels = ['Base','HP/HC','Tempo','Tempo Opt.','Total Charge'];
-        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCost, tcResNoPV.cost];
+        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCostNoPV, tcResNoPV.cost];
         bgColors = ['#4e79a7','#f28e2b','#59a14f','#17a2b8','#d62728'];
     }
 
@@ -2035,7 +2035,7 @@
         const basePricePerKwh = baseCostNoPV / annualConsumption;
         const hpPricePerKwh = hpCostNoPV / annualConsumption;
         const tempoPricePerKwh = tempoResNoPV.cost / annualConsumption;
-        const tempoOptPricePerKwh = tempoOptimizedCost / annualConsumption;
+        const tempoOptPricePerKwh = tempoOptimizedCostNoPV / annualConsumption;
         const tcPricePerKwh = tcResNoPV.cost / annualConsumption;
         
         labels2 = ['Base','HP/HC','Tempo','Tempo Opt.','Total Charge'];
