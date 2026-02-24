@@ -92,9 +92,9 @@
       approxPct: { B:0.80, W:0.15, R:0.05 }
     },
   totalChargeHeures: {
-      php: 0.1612,
-      phc: 0.2305,
-      phsc: 0.1007,
+      php: 0.2305,
+      phc: 0.1579,
+      phsc: 0.1337,
       sub: 15.65,
       hpRange: '07-23',
       hcRange: '23-02;06-07',
