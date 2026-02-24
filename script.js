@@ -1356,20 +1356,31 @@
     const el = document.getElementById('defaults-display');
     if(el){
       function tempoDisplay(c){
-        const v = DEFAULTS.tempo[c];
+        const v = DEFAULTS.tempo && DEFAULTS.tempo[c];
         if(!v) return '-';
         if(typeof v === 'object') return `HP ${v.hp} €/kWh — HC ${v.hc} €/kWh`;
         return `${v} €/kWh`;
       }
-      const txt = `Base: ${DEFAULTS.priceBase} €/kWh (abonnement ${DEFAULTS.subBase} €/mois)\n` +
-                  `HP/HC: HP ${DEFAULTS.hp.php} €/kWh — HC ${DEFAULTS.hp.phc} €/kWh (HC range ${DEFAULTS.hp.hcRange}, abonnement ${DEFAULTS.hp.sub} €/mois)\n` +
-                  `Tempo: Bleu ${tempoDisplay('blue')} — Blanc ${tempoDisplay('white')} — Rouge ${tempoDisplay('red')} (abonnement ${DEFAULTS.tempo.sub} €/mois)\n` +
+      // Use getPriceForPower for subscription prices (works with new modular system)
+      const subBase = getPriceForPower('base', 6) || 15.65;
+      const subHphc = getPriceForPower('hphc', 6) || 15.65;
+      const subTempo = getPriceForPower('tempo', 6) || 15.59;
+      
+      const priceBase = DEFAULTS.base && DEFAULTS.base.price ? DEFAULTS.base.price : '-';
+      const hpPhp = DEFAULTS.hphc && DEFAULTS.hphc.php ? DEFAULTS.hphc.php : '-';
+      const hpPhc = DEFAULTS.hphc && DEFAULTS.hphc.phc ? DEFAULTS.hphc.phc : '-';
+      const hpRange = DEFAULTS.hphc && DEFAULTS.hphc.hcRange ? DEFAULTS.hphc.hcRange : '-';
+      
+      const txt = `Base: ${priceBase} €/kWh (abonnement ${subBase.toFixed(2)} €/mois)\n` +
+                  `HP/HC: HP ${hpPhp} €/kWh — HC ${hpPhc} €/kWh (HC range ${hpRange}, abonnement ${subHphc.toFixed(2)} €/mois)\n` +
+                  `Tempo: Bleu ${tempoDisplay('blue')} — Blanc ${tempoDisplay('white')} — Rouge ${tempoDisplay('red')} (abonnement ${subTempo.toFixed(2)} €/mois)\n` +
                   `Prix injection (revenu export): ${DEFAULTS.injectionPrice} €/kWh`;
       el.textContent = txt;
     }
     const inj = document.getElementById('injection-value'); if(inj) inj.textContent = String(DEFAULTS.injectionPrice);
   }
-  populateDefaultsDisplay();
+  // Note: populateDefaultsDisplay() will be called after tariffs are loaded in the async initialization
+  
   // Auto-run analysis when files are selected: analyze, monthly breakdown, PV estimate, compare offers
   if(fileInput){
     fileInput.addEventListener('change', ()=>{
@@ -2760,6 +2771,8 @@
     if (!success) {
       console.error('Failed to load tariff files. Application may not function correctly.');
     }
+    // Populate defaults display after tariffs are loaded
+    populateDefaultsDisplay();
   })();
   
   // Expose for auto-run
