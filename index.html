@@ -58,16 +58,16 @@
 
         <div>
           <h3>Script à exécuter</h3>
-          <div id="script-area" style="display:none;">
+          <div id="script-area" class="hidden">
             <div class="form-group">
               <textarea id="console-script" rows="8" readonly onclick="this.select()"></textarea>
             </div>
-            <div class="text-muted" style="font-size: 0.85rem;">
+                <div class="text-muted text-sm">
               Copiez ce texte, allez sur l'onglet Enedis, ouvrez la console (F12), collez et validez.
               Un fichier <code>consommation_annee.json</code> sera téléchargé.
             </div>
           </div>
-          <div id="download-log" class="log-container" style="margin-top: 1rem; display:none;"></div>
+              <div id="download-log" class="log-container mt-3 hidden"></div>
         </div>
       </div>
     </section>
@@ -87,6 +87,7 @@
 
       <!-- Dashboard (Hidden initially) -->
     <div id="dashboard-section" class="hidden">
+      <div id="tariff-errors" class="alert-stack hidden"></div>
       
       <!-- Key Metrics -->
       <div class="grid-3 mb-4">
@@ -105,7 +106,7 @@
         </div>
         <div class="card">
           <h3 class="card-title mb-4">Répartition HP / HC</h3>
-          <div style="max-width: 300px; margin: 0 auto;">
+          <div class="chart-narrow">
             <canvas id="hp-hc-pie"></canvas>
           </div>
         </div>
@@ -114,14 +115,14 @@
       <!-- Simulation Controls -->
       <section class="card mb-4">
         <div class="card-header">
-          <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
-             <h2 class="card-title" style="margin:0">2. Simulation Photovoltaïque</h2>
-             <div style="display:flex; align-items:center;">
+           <div class="card-header-row-full">
+             <h2 class="card-title m-0">2. Simulation Photovoltaïque</h2>
+             <div class="flex-row align-center">
                 <label class="switch">
                   <input type="checkbox" id="toggle-pv">
                   <span class="slider"></span>
                 </label>
-                <label for="toggle-pv" style="margin:0; cursor:pointer; font-weight:600;">Activer Photovoltaïque</label>
+               <label for="toggle-pv" class="toggle-label">Activer Photovoltaïque</label>
              </div>
           </div>
         </div>
@@ -142,9 +143,9 @@
             </div>
             <div class="form-group">
                 <label for="pv-standby">Talon de consommation (W)</label>
-                <div style="display:flex; gap:8px;">
-                    <input id="pv-standby" type="number" step="10" value="50" style="flex:1;" />
-                    <button id="btn-estimate-standby" class="btn btn-secondary" style="padding: 0 12px; font-size: 0.85rem;" title="Estimer à partir des données de jour (10h-16h)">Estimer</button>
+              <div class="flex-row gap-sm">
+                <input id="pv-standby" type="number" step="10" value="50" class="flex-1" />
+                <button id="btn-estimate-standby" class="btn btn-secondary btn-compact" title="Estimer à partir des données de jour (10h-16h)">Estimer</button>
                 </div>
                 <small class="text-muted">Consommation minimale permanente</small>
             </div>
@@ -153,21 +154,21 @@
             <!-- Cost Parameters for Optimization -->
             <div class="panel-secondary">
                 <div class="grid-2">
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label for="pv-cost-base" style="font-size:0.9rem;">Coût Fixe (Fixation, Admin, Installation électrique) €</label>
+                <div class="form-group form-group-compact">
+                  <label for="pv-cost-base" class="label-sm">Coût Fixe (Fixation, Admin, Installation électrique) €</label>
                         <input id="pv-cost-base" type="number" value="500" step="50">
                     </div>
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label for="pv-cost-panel" style="font-size:0.9rem;">Coût par Panneau (400Wc) avec micro-onduleur €</label>
+                <div class="form-group form-group-compact">
+                  <label for="pv-cost-panel" class="label-sm">Coût par Panneau (400Wc) avec micro-onduleur €</label>
                         <input id="pv-cost-panel" type="number" value="200" step="10">
                     </div>
                 </div>
                 <div class="form-group separator">
-                    <label for="pv-roi-years" style="font-size:0.9rem; display:flex; justify-content:space-between;">
+                <label for="pv-roi-years" class="label-sm label-row">
                         <span>Durée cible rentabilité</span>
-                        <span id="pv-roi-display" style="font-weight:bold; color:var(--primary);">15 ans</span>
+                  <span id="pv-roi-display" class="text-strong text-primary">15 ans</span>
                     </label>
-                    <input id="pv-roi-years" type="range" min="5" max="25" value="15" step="1" style="width:100%;">
+                <input id="pv-roi-years" type="range" min="5" max="25" value="15" step="1" class="w-100">
                 </div>
             </div>
             
@@ -196,9 +197,9 @@
 
       <!-- Paramètres (contractuels) -->
       <section class="card mb-4">
-        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('contract-params-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
+        <div class="card-header clickable-header" onclick="document.getElementById('contract-params-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
           <h2 class="card-title">3. Paramètres Abonnement</h2>
-          <span class="arrow-icon" style="transition: transform 0.3s;">▼</span>
+          <span class="arrow-icon arrow-animate">▼</span>
         </div>
         <div id="contract-params-content" class="hidden">
           <div class="grid-2">
@@ -270,7 +271,7 @@
         <!-- Hidden legacy log for compatibility if needed, or we repurpose it -->
         <div id="offers-results" class="hidden"></div>
         <div id="pv-results" class="hidden"></div>
-        <div id="analysis-log" class="hidden"></div>
+        
         <div id="summary-metrics" class="hidden"></div>
 
         <!-- Charts Row 2 -->
@@ -304,24 +305,24 @@
           </div>
         </div>
 
-        <div id="monthly-results" style="overflow-x: auto;"></div>
+        <div id="monthly-results" class="table-scroll"></div>
       </section>
 
       <!-- Tempo Calendar -->
       <section class="card">
-        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('tempo-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
+        <div class="card-header clickable-header" onclick="document.getElementById('tempo-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
           <h2 class="card-title">Calendrier TEMPO Reconstitué</h2>
-          <span class="arrow-icon" style="transition: transform 0.3s;">▼</span>
+          <span class="arrow-icon arrow-animate">▼</span>
         </div>
         
         <div id="tempo-content" class="hidden">
-            <div id="tempo-loading" class="loading-container" style="display:none;">
+            <div id="tempo-loading" class="loading-container hidden">
             <div class="loading-bar"><div id="tempo-loading-fill" class="loading-fill"></div></div>
             <div id="tempo-loading-text" class="loading-text">Chargement...</div>
             </div>
 
             <div id="tempo-calendar-graph" class="tempo-calendar-wrapper mt-4"></div>
-            <div id="tempo-diagnostics" class="text-muted mt-4" style="font-size: 0.85rem;"></div>
+            <div id="tempo-diagnostics" class="text-muted text-sm mt-4"></div>
         </div>
       </section>
 
@@ -332,17 +333,17 @@
       <!-- Info Display -->
       <div class="card mt-4">
         <h3>Informations Tarifs</h3>
-        <pre id="defaults-display" style="background: transparent; border: none; padding: 0;"></pre>
+        <pre id="defaults-display" class="pre-plain"></pre>
         <div id="price-injection-display" class="hidden"></div>
       </div>
 
     </div>
 
-    <footer class="text-center text-muted" style="margin-top: 2rem;">
+    <footer class="text-center text-muted mt-5">
       <small>ComparatifElec — Outil d'analyse locale (Client-side only)</small>
     </footer>
   </div>
   <script src="csvToEnedisJson.js"></script>
-  <script src="script.js"></script>
+  <script type="module" src="src/app.js"></script>
 </body>
 </html>
