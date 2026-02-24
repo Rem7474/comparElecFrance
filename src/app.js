@@ -279,12 +279,13 @@ export async function triggerFullRecalculation() {
     // Affichage Informations Tarifs (seulement si records chargés)
     const infoTarifEl = document.getElementById('defaults-display');
     if (infoTarifEl) {
+      const parent = infoTarifEl.parentElement;
       if (records && records.length > 0) {
         infoTarifEl.textContent = JSON.stringify(appState.tariffs, null, 2);
-        infoTarifEl.parentElement.classList.remove('hidden');
+        if (parent && parent.classList.contains('hidden')) parent.classList.remove('hidden');
       } else {
         infoTarifEl.textContent = '';
-        infoTarifEl.parentElement.classList.add('hidden');
+        if (parent && !parent.classList.contains('hidden')) parent.classList.add('hidden');
       }
     }
 
