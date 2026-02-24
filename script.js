@@ -91,6 +91,15 @@
       hcRange: '22-06',
       approxPct: { B:0.80, W:0.15, R:0.05 }
     },
+  totalChargeHeures: {
+      php: 0.1612,
+      phc: 0.2305,
+      phsc: 0.1007,
+      sub: 15.65,
+      hpRange: '07-23',
+      hcRange: '23-02;06-07',
+      hscRange: '02-06'
+    },
   injectionPrice: 0,
     // monthly weights for PV distribution (normalized internally)
     monthlySolarWeightsRaw: [0.6,0.7,0.9,1.1,1.2,1.3,1.3,1.2,1.0,0.8,0.6,0.5],
@@ -914,6 +923,10 @@
       const tempoOptEnergyObj = computeCostTempoOptimizedForRecords(recs);
       const tempoOptTotal = (tempoOptEnergyObj && tempoOptEnergyObj.cost) ? tempoOptEnergyObj.cost + subTempo : 0;
 
+      const tchEnergyObj = computeCostTotalChargeHeuresForRecords(recs);
+      const subTch = Number((DEFAULTS.totalChargeHeures||{}).sub)||0;
+      const tchTotal = (tchEnergyObj && tchEnergyObj.cost) ? tchEnergyObj.cost + subTch : 0;
+
       // with PV: reduce consumption by monthSelf proportionally across records
       const recsWithPV = applyMonthlyReduction(recs, monthSelf);
       const baseEnergyPV = computeCostBaseForRecords(recsWithPV);
@@ -928,6 +941,9 @@
       const tempoOptEnergyObjPV = computeCostTempoOptimizedForRecords(recsWithPV);
       const tempoOptTotalPV = (tempoOptEnergyObjPV && tempoOptEnergyObjPV.cost) ? tempoOptEnergyObjPV.cost + subTempo - ( (monthPV - monthSelf) * exportPrice ) : 0;
 
+      const tchEnergyObjPV = computeCostTotalChargeHeuresForRecords(recsWithPV);
+      const tchTotalPV = (tchEnergyObjPV && tchEnergyObjPV.cost) ? tchEnergyObjPV.cost + subTch - ( (monthPV - monthSelf) * exportPrice ) : 0;
+
       results.push({ 
           month: k, 
           consumption: totalKwh, 
@@ -940,7 +956,9 @@
           tempo:{ energy: tempoEnergyObj.cost||0, total: tempoTotal }, 
           tempoPV:{ energy: (tempoEnergyObjPV && tempoEnergyObjPV.cost)||0, total: tempoTotalPV },
           tempoOpt: { energy: tempoOptEnergyObj.cost||0, total: tempoOptTotal },
-          tempoOptPV: { energy: tempoOptEnergyObjPV.cost||0, total: tempoOptTotalPV }
+          tempoOptPV: { energy: tempoOptEnergyObjPV.cost||0, total: tempoOptTotalPV },
+          tch: { energy: tchEnergyObj.cost||0, hp: tchEnergyObj.hp||0, hc: tchEnergyObj.hc||0, hsc: tchEnergyObj.hsc||0, total: tchTotal },
+          tchPV: { energy: (tchEnergyObjPV && tchEnergyObjPV.cost)||0, total: tchTotalPV }
       });
     }
     return results;
@@ -970,9 +988,10 @@
         headerHTML += '<th>Base (€)</th><th>Base (avec PV) (€)</th><th>Éco. PV Base (€)</th>'+
                       '<th>HP/HC (€)</th><th>HP/HC (avec PV) (€)</th><th>Éco. PV HP/HC (€)</th>'+
                       '<th>Tempo (€)</th><th>Tempo (avec PV) (€)</th><th>Éco. PV Tempo (€)</th>'+
-                      '<th>Tempo Opt. (€)</th><th>Tempo Opt. (avec PV) (€)</th><th>Éco. PV Tempo Opt. (€)</th>';
+                      '<th>Tempo Opt. (€)</th><th>Tempo Opt. (avec PV) (€)</th><th>Éco. PV Tempo Opt. (€)</th>'+
+                      '<th>TCH (€)</th><th>TCH (avec PV) (€)</th><th>Éco. PV TCH (€)</th>';
     } else {
-        headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th>';
+        headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th><th>TCH (€)</th>';
     }
     hdr.innerHTML = headerHTML;
     table.appendChild(hdr);
@@ -983,7 +1002,8 @@
       base: Math.max(0, (row.base.total||0) - (row.basePV.total||0)),
       hphc: Math.max(0, (row.hphc.total||0) - (row.hphcPV.total||0)),
       tempo: Math.max(0, (row.tempo.total||0) - (row.tempoPV.total||0)),
-      tempoOpt: Math.max(0, (row.tempoOpt.total||0) - (row.tempoOptPV.total||0))
+      tempoOpt: Math.max(0, (row.tempoOpt.total||0) - (row.tempoOptPV.total||0)),
+      tch: Math.max(0, (row.tch.total||0) - (row.tchPV.total||0))
     }));
     for(const [i,row] of data.entries()){
       const sv = monthlySavings[i];
@@ -1002,12 +1022,16 @@
                      `<td style="color:#2e7d32">${formatNumber(sv.tempo)}</td>`+
                      `<td>${formatNumber(row.tempoOpt.total)}</td>`+
                      `<td>${formatNumber(row.tempoOptPV.total)}</td>`+
-                     `<td style="color:#2e7d32">${formatNumber(sv.tempoOpt)}</td>`;
+                     `<td style="color:#2e7d32">${formatNumber(sv.tempoOpt)}</td>`+
+                     `<td>${formatNumber(row.tch.total)}</td>`+
+                     `<td>${formatNumber(row.tchPV.total)}</td>`+
+                     `<td style="color:#2e7d32">${formatNumber(sv.tch)}</td>`;
       } else {
           rowHTML += `<td>${formatNumber(row.base.total)}</td>`+
                      `<td>${formatNumber(row.hphc.total)}</td>`+
                      `<td>${formatNumber(row.tempo.total)}</td>`+
-                     `<td>${formatNumber(row.tempoOpt.total)}</td>`;
+                     `<td>${formatNumber(row.tempoOpt.total)}</td>`+
+                     `<td>${formatNumber(row.tch.total)}</td>`;
       }
       tr.innerHTML = rowHTML;
       table.appendChild(tr);
@@ -1020,8 +1044,9 @@
         base: acc.base + (m.base||0),
         hphc: acc.hphc + (m.hphc||0),
         tempo: acc.tempo + (m.tempo||0),
-        tempoOpt: acc.tempoOpt + (m.tempoOpt||0)
-        }), {base:0,hphc:0,tempo:0,tempoOpt:0});
+        tempoOpt: acc.tempoOpt + (m.tempoOpt||0),
+        tch: acc.tch + (m.tch||0)
+        }), {base:0,hphc:0,tempo:0,tempoOpt:0,tch:0});
         const totalsBox = document.createElement('div');
         totalsBox.id = 'pv-savings-totals';
         totalsBox.className = 'log';
@@ -1030,11 +1055,12 @@
                             `Base: ${formatNumber(totalSavings.base)} € &nbsp; | &nbsp; `+
                             `HP/HC: ${formatNumber(totalSavings.hphc)} € &nbsp; | &nbsp; `+
                             `Tempo: ${formatNumber(totalSavings.tempo)} € &nbsp; | &nbsp; `+
-                            `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt)} €`;
+                            `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt)} € &nbsp; | &nbsp; `+
+                            `TCH: ${formatNumber(totalSavings.tch)} €`;
         container.appendChild(totalsBox);
     }
 
-    // chart: one dataset per offer (base, basePV, hphc, hphcPV, tempo, tempoPV)
+    // chart: one dataset per offer (base, basePV, hphc, hphcPV, tempo, tempoPV, tch, tchPV)
     const labels = data.map(d=> d.month);
     let ds = [];
     if (isPvEnabled) {
@@ -1046,14 +1072,17 @@
             {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'}, 
             {label:'Tempo (avec PV)', data: data.map(d=> d.tempoPV.total), backgroundColor:'#bfe5b9'},
             {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#117a8b'}, 
-            {label:'Tempo Opt. (avec PV)', data: data.map(d=> d.tempoOptPV.total), backgroundColor:'#17a2b8'}
+            {label:'Tempo Opt. (avec PV)', data: data.map(d=> d.tempoOptPV.total), backgroundColor:'#17a2b8'},
+            {label:'TCH', data: data.map(d=> d.tch.total), backgroundColor:'#d62728'},
+            {label:'TCH (avec PV)', data: data.map(d=> d.tchPV.total), backgroundColor:'#ff9896'}
         ];
     } else {
         ds = [ 
             {label:'Base', data: data.map(d=> d.base.total), backgroundColor:'#4e79a7'}, 
             {label:'HP/HC', data: data.map(d=> d.hphc.total), backgroundColor:'#f28e2b'}, 
             {label:'Tempo', data: data.map(d=> d.tempo.total), backgroundColor:'#59a14f'},
-            {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#17a2b8'}
+            {label:'Tempo Opt.', data: data.map(d=> d.tempoOpt.total), backgroundColor:'#17a2b8'},
+            {label:'TCH', data: data.map(d=> d.tch.total), backgroundColor:'#d62728'}
         ];
     }
     
@@ -1077,7 +1106,8 @@
                 { label:'Éco. Base (€)', data: monthlySavings.map(m=> m.base), backgroundColor:'#2e7d3233', borderColor:'#2e7d32', borderWidth:1 },
                 { label:'Éco. HP/HC (€)', data: monthlySavings.map(m=> m.hphc), backgroundColor:'#00838f33', borderColor:'#00838f', borderWidth:1 },
                 { label:'Éco. Tempo (€)', data: monthlySavings.map(m=> m.tempo), backgroundColor:'#8e24aa33', borderColor:'#8e24aa', borderWidth:1 },
-                { label:'Éco. Tempo Opt. (€)', data: monthlySavings.map(m=> m.tempoOpt), backgroundColor:'#005cbf33', borderColor:'#005cbf', borderWidth:1 }
+                { label:'Éco. Tempo Opt. (€)', data: monthlySavings.map(m=> m.tempoOpt), backgroundColor:'#005cbf33', borderColor:'#005cbf', borderWidth:1 },
+                { label:'Éco. TCH (€)', data: monthlySavings.map(m=> m.tch), backgroundColor:'#d6272833', borderColor:'#d62728', borderWidth:1 }
                 ]
             },
             options: { responsive:true, scales:{ y:{ beginAtZero:true, title:{ display:true, text:'€ / mois économisés' } } }, interaction:{ mode:'index' } }
@@ -1094,7 +1124,7 @@
   if(btnMonthly) btnMonthly.addEventListener('click', renderMonthlyBreakdown);
 
   // --- localStorage persistence for UI settings ---
-  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel','param-hphc-hcRange','param-sub-base','param-sub-hphc','param-sub-tempo'];
+  const SETTINGS_KEYS = ['pv-kwp','pv-region','pv-standby','pv-cost-base','pv-cost-panel','param-hphc-hcRange','param-sub-base','param-sub-hphc','param-sub-tempo','param-tch-hpRange','param-tch-hcRange','param-tch-hscRange','param-sub-tch'];
   function storageKey(k){ return 'comparatifElec.' + k; }
   function saveSetting(id){ try{ const el = document.getElementById(id); if(!el) return; const val = (el.type==='checkbox') ? el.checked : el.value; localStorage.setItem(storageKey(id), JSON.stringify(val)); }catch(e){} }
   function loadSetting(id){ try{ const v = localStorage.getItem(storageKey(id)); if(v===null) return; const parsed = JSON.parse(v); const el = document.getElementById(id); if(!el) return; if(el.type==='checkbox'){ el.checked = parsed; } else { el.value = parsed; } }catch(e){} }
@@ -1175,8 +1205,26 @@
     const sb = document.getElementById('param-sub-base'); if(sb && !sb.value) sb.value = String(DEFAULTS.subBase || '');
     const sh = document.getElementById('param-sub-hphc'); if(sh && !sh.value) sh.value = String((DEFAULTS.hp||{}).sub || '');
     const st = document.getElementById('param-sub-tempo'); if(st && !st.value) st.value = String((DEFAULTS.tempo||{}).sub || '');
+    const hpr = document.getElementById('param-tch-hpRange'); if(hpr && !hpr.value) hpr.value = String((DEFAULTS.totalChargeHeures||{}).hpRange || '');
+    const hcr = document.getElementById('param-tch-hcRange'); if(hcr && !hcr.value) hcr.value = String((DEFAULTS.totalChargeHeures||{}).hcRange || '');
+    const hsr = document.getElementById('param-tch-hscRange'); if(hsr && !hsr.value) hsr.value = String((DEFAULTS.totalChargeHeures||{}).hscRange || '');
+    const stch = document.getElementById('param-sub-tch'); if(stch && !stch.value) stch.value = String((DEFAULTS.totalChargeHeures||{}).sub || '');
   }catch(e){} })();
-  // Listen and recalc on changes
+  // Apply Total Charge'Heures inputs
+  function applyTotalChargeHeuresInputs(){
+    const hpr = document.getElementById('param-tch-hpRange');
+    const hcr = document.getElementById('param-tch-hcRange');
+    const hsr = document.getElementById('param-tch-hscRange');
+    const sub = document.getElementById('param-sub-tch');
+    let changed = false;
+    if(hpr && hpr.value){ const v = normalizeHcRange(hpr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hpRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hpRange = v; changed = true; } } }
+    if(hcr && hcr.value){ const v = normalizeHcRange(hcr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hcRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hcRange = v; changed = true; } } }
+    if(hsr && hsr.value){ const v = normalizeHcRange(hsr.value); if(v){ if((DEFAULTS.totalChargeHeures||{}).hscRange !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.hscRange = v; changed = true; } } }
+    if(sub && sub.value){ const v = Number(sub.value); if(!isNaN(v) && v >= 0){ if((DEFAULTS.totalChargeHeures||{}).sub !== v){ if(!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {}; DEFAULTS.totalChargeHeures.sub = v; changed = true; } } }
+    if(changed) populateDefaultsDisplay();
+    return changed;
+  }
+  // Listen and recalc on changes for subscription prices
   (function(){
     const ids = ['param-sub-base','param-sub-hphc','param-sub-tempo'];
     ids.forEach(id=>{
@@ -1195,6 +1243,27 @@
             try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){}
           }
         }catch(e){ console.warn('Recalc after subscription change failed', e); }
+      });
+    });
+  })();
+  // Listen and recalc on changes for Total Charge'Heures
+  (function(){
+    const ids = ['param-tch-hpRange','param-tch-hcRange','param-tch-hscRange','param-sub-tch'];
+    ids.forEach(id=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('change', async ()=>{
+        saveSetting(id);
+        const changed = applyTotalChargeHeuresInputs();
+        if(!changed) return;
+        try{
+          const files = fileInput && fileInput.files;
+          if(files && files.length){
+            const records = await parseFilesToRecords(files);
+            try{ renderMonthlyBreakdown(); }catch(e){}
+            try{ const co = document.getElementById('btn-compare-offers'); if(co) co.click(); }catch(e){}
+          }
+        }catch(e){ console.warn('Recalc after TCH change failed', e); }
       });
     });
   })();
@@ -1319,15 +1388,50 @@
   }
 
   function computeCostWithProfile(perHourAnnual, priceBase, hpParams){
-    // hpParams: {mode:'base'|'hp-hc', php, phc, hcRange}
+    // hpParams: {mode:'base'|'hp-hc'|'tch', php, phc, hcRange, phsc, hscRange, hpRange}
     let cost = 0; let hpCost=0, hcCost=0;
     if(hpParams.mode === 'base'){
       const p = priceBase; for(let h=0;h<24;h++) cost += perHourAnnual[h] * p;
       return {cost, hpCost:0, hcCost:0};
     }
+    if(hpParams.mode === 'tch'){
+      // Total Charge'Heures: 3 tiers (HP, HC, HSC)
+      let hscCost = 0;
+      for(let h=0;h<24;h++){
+        const q = perHourAnnual[h] || 0;
+        if(hpParams.hscRange && isHourHC(h, hpParams.hscRange)){
+          hscCost += q * hpParams.phsc;
+        } else if(isHourHC(h, hpParams.hcRange)){
+          hcCost += q * hpParams.phc;
+        } else {
+          hpCost += q * hpParams.php;
+        }
+      }
+      cost = hpCost + hcCost + hscCost;
+      return {cost, hpCost, hcCost, hscCost};
+    }
     for(let h=0;h<24;h++){
       const q = perHourAnnual[h] || 0; if(isHourHC(h, hpParams.hcRange)){ hcCost += q * hpParams.phc; } else { hpCost += q * hpParams.php; } }
     cost = hpCost + hcCost; return {cost, hpCost, hcCost};
+  }
+
+  // Compute Total Charge'Heures cost for records
+  function computeCostTotalChargeHeuresForRecords(records){
+    const tch = DEFAULTS.totalChargeHeures || {};
+    let cost = 0, hpCost = 0, hcCost = 0, hscCost = 0;
+    for(const r of records){
+      const v = Number(r.valeur)||0;
+      const h = new Date(r.dateDebut).getHours();
+      if(tch.hscRange && isHourHC(h, tch.hscRange)){
+        hscCost += v * (Number(tch.phsc)||0);
+      } else if(isHourHC(h, tch.hcRange)){
+        hcCost += v * (Number(tch.phc)||0);
+      } else {
+        hpCost += v * (Number(tch.php)||0);
+      }
+    }
+    cost = hpCost + hcCost + hscCost;
+    return {mode:'tch', cost, hp: hpCost, hc: hcCost, hsc: hscCost};
   }
 
   // --- Helper: Find Optimal PV Configuration ---
@@ -1511,6 +1615,7 @@
     const subBase = (Number(DEFAULTS.subBase)||0) * monthsCount;
     const subHp = (Number(DEFAULTS.hp.sub)||0) * monthsCount;
     const subTempo = (Number(DEFAULTS.tempo.sub)||0) * monthsCount;
+    const subTch = (Number((DEFAULTS.totalChargeHeures||{}).sub)||0) * monthsCount;
 
     // cost without PV
     const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, {mode:'base'}).cost + subBase;
@@ -1518,6 +1623,9 @@
     // Tempo cost without PV
     const tempoResNoPV = calculateTariffCostTempo(records);
     tempoResNoPV.cost += subTempo;
+    // Total Charge'Heures cost without PV
+    const tchResNoPV = computeCostTotalChargeHeuresForRecords(records);
+    tchResNoPV.cost += subTch;
 
     // simulate PV (take into account standby consumption if provided)
     const standbyW = Number((document.getElementById('pv-standby')||{}).value) || 0;
@@ -1537,6 +1645,8 @@
     }
     const tempoResWithPV = calculateTariffCostTempo(recordsWithPV);
     tempoResWithPV.cost += subTempo;
+    const tchResWithPV = computeCostTotalChargeHeuresForRecords(recordsWithPV);
+    tchResWithPV.cost += subTch;
 
     // --- Simpson Optimized Tempo (Migration 50% HP Rouge -> HP Blanc) ---
     // Simule un changement de comportement: réduire de moitié la conso en jours rouges (heures pleines)
@@ -1615,7 +1725,7 @@
 
     // Update Dashboard Metrics
     const totalCostEl = document.getElementById('val-total-cost');
-    const minCost = Math.min(baseCostWithPV, hpCostWithPV, (tempoResWithPV && tempoResWithPV.cost ? tempoResWithPV.cost : Infinity));
+    const minCost = Math.min(baseCostWithPV, hpCostWithPV, (tempoResWithPV && tempoResWithPV.cost ? tempoResWithPV.cost : Infinity), tchResWithPV.cost);
     if(totalCostEl) totalCostEl.textContent = formatNumber(minCost) + ' €';
     
     const pvProdEl = document.getElementById('val-pv-prod');
@@ -1631,7 +1741,8 @@
     const offerDetails = [
         { id: 'base', name: 'Base', val: baseCostWithPV },
         { id: 'hphc', name: 'HP/HC', val: hpCostWithPV },
-        { id: 'tempo', name: 'Tempo', val: tempoResWithPV.cost || Infinity }
+        { id: 'tempo', name: 'Tempo', val: tempoResWithPV.cost || Infinity },
+        { id: 'tch', name: 'Total Charge\'Heures', val: tchResWithPV.cost }
     ];
     offerDetails.sort((a,b) => a.val - b.val);
     const bestId = offerDetails[0].id;
@@ -1755,6 +1866,25 @@
             "Avec report 50% HP Rouge vers HP Blanc.", 
             'card-optimized',
             diffVsClassic > 0 ? savingsText : null
+        ));
+
+        // Total Charge'Heures
+        const diffTchVsBase = baseCostWithPV - tchResWithPV.cost;
+        const diffTchVsHpHc = hpCostWithPV - tchResWithPV.cost;
+        const tchExtraInfo = diffTchVsBase > 0 ? `
+            <div>Économie vs Base: <strong>${formatNumber(diffTchVsBase)} €</strong></div>
+            <div>Économie vs HP/HC: <strong>${formatNumber(diffTchVsHpHc)} €</strong></div>
+        ` : null;
+
+        grid.appendChild(createCard(
+            'Total Charge\'Heures',
+            tchResNoPV.cost,
+            tchResWithPV.cost,
+            bestId === 'tch',
+            "Tarif à 4 tranches horaires (HP/HC/HSC).",
+            '',
+            tchExtraInfo,
+            true
         ));
     }
 
