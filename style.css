@@ -1,3 +1,34 @@
+/* Bannière d’erreur tarifs */
+.error-banner {
+  background: #ffdddd;
+  color: #a94442;
+  border: 1px solid #e57373;
+  padding: 12px 24px;
+  font-size: 1.1rem;
+  font-weight: 500;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  transition: opacity 0.2s;
+}
+.error-banner.hidden {
+  display: none;
+}
+.error-banner .btn {
+  margin-left: 16px;
+  background: #fff;
+  color: #a94442;
+  border: 1px solid #e57373;
+  font-size: 0.95em;
+  padding: 2px 10px;
+  cursor: pointer;
+}
 /* Modern Reset & Variables */
 :root {
   /* Colors */
