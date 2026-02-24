@@ -6,7 +6,16 @@ import * as tariffEngine from './tariffEngine.js';
 import * as pvSim from './pvSimulation.js';
 import * as tempoCal from './tempoCalendar.js';
 
-// TODO: Orchestration, gestion du cache records, gestion d'erreur UI, triggerFullRecalculation, etc.
+
+// Branche l'analyse automatique à la sélection de fichier
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = document.getElementById('file-input');
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      triggerFullRecalculation();
+    });
+  }
+});
 
 /**
  * Orchestration du recalcul complet de l'application
