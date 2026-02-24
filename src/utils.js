@@ -99,6 +99,46 @@ export function monthKeyFromDateStr(dateStr) {
 }
 
 /**
+ * Calcule les statistiques horaires à partir des records
+ * Retourne: { total, avg[], min[], max[], count[] }
+ */
+export function computeHourlyStats(records) {
+  const hours = Array.from({ length: 24 }, () => []);
+  let total = 0;
+  
+  for (const r of records) {
+    const v = Number(r.valeur);
+    if (isNaN(v)) continue;
+    total += v;
+    
+    const dt = new Date(r.dateDebut);
+    if (isNaN(dt.getTime())) continue;
+    
+    const h = dt.getHours();
+    hours[h].push(v);
+  }
+  
+  const avg = [], min = [], max = [], count = [];
+  for (let h = 0; h < 24; h++) {
+    const arr = hours[h];
+    if (arr.length === 0) {
+      avg.push(0);
+      min.push(0);
+      max.push(0);
+      count.push(0);
+    } else {
+      const s = arr.reduce((a, b) => a + b, 0);
+      avg.push(s / arr.length);
+      min.push(Math.min(...arr));
+      max.push(Math.max(...arr));
+      count.push(arr.length);
+    }
+  }
+  
+  return { total, avg, min, max, count };
+}
+
+/**
  * Génère une clé de stockage local pour un paramètre
  */
 export function storageKey(k) {

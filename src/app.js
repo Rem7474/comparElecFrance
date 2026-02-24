@@ -1,6 +1,10 @@
 // src/app.js
 // Point d'entrée principal de comparElecFrance (SPA)
 import { appState } from './state.js';
+import { isHourHC, formatNumber, computeHourlyStats } from './utils.js';
+import * as tariffEngine from './tariffEngine.js';
+import * as pvSim from './pvSimulation.js';
+import * as tempoCal from './tempoCalendar.js';
 // Fonction utilitaire pour afficher/masquer la bannière d’erreur tarifs
 function showTariffErrorBanner(msg) {
   let banner = document.getElementById('tariff-error-banner');
@@ -22,7 +26,7 @@ function hideTariffErrorBanner() {
 }
 
 /**
- * Charge tous les fichiers de tarifs (JSON) et met à jour appState
+ * Charge tous les fichiers de tarifs (JSON) et la configuration
  * Gère les erreurs et fallback
  */
 export async function loadTariffs() {
@@ -37,18 +41,37 @@ export async function loadTariffs() {
   appState.tariffsError = null;
   const tariffs = {};
   try {
+    // Charger la configuration
+    const configResp = await fetch('tariffs/config.json');
+    if (!configResp.ok) throw new Error(`HTTP ${configResp.status} pour config.json`);
+    appState.defaults = await configResp.json();
+    
+    // Ajouter les références aux tariffs dans defaults
     for (const t of tariffFiles) {
       try {
         const resp = await fetch(t.file);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         tariffs[t.id] = await resp.json();
+        appState.defaults[t.id] = tariffs[t.id];
       } catch (err) {
         throw new Error(`Erreur chargement ${t.file}: ${err.message || err}`);
       }
     }
+    
     appState.tariffs = tariffs;
     appState.tariffsLoaded = true;
     appState.tariffsError = null;
+    
+    // Ajouter le mapping HP/HC pour compatibilité
+    if (tariffs.hphc) {
+      appState.defaults.hp = {
+        php: tariffs.hphc.php,
+        phc: tariffs.hphc.phc,
+        hcRange: tariffs.hphc.hcRange,
+        sub: tariffs.hphc.subscriptions?.[6] || 0
+      };
+    }
+    
     hideTariffErrorBanner();
     return tariffs;
   } catch (err) {
@@ -64,20 +87,218 @@ export async function loadTariffs() {
         color: '#4e79a7', colorWithPV: '#a0cbe8'
       }
     };
+    // Configuration fallback
+    appState.defaults = {
+      monthlySolarWeights: [0.03, 0.05, 0.09, 0.11, 0.13, 0.14, 0.15, 0.13, 0.10, 0.07, 0.04, 0.03],
+      injectionPrice: 0.10,
+      priceBase: 0.1940,
+      tempoApi: {
+        enabled: true,
+        baseUrl: 'https://www.services-rte.com/cms/api_private/indicateurs/v1',
+        concurrency: 4,
+        storageKey: 'comparatifElec.tempoDayMap'
+      }
+    };
     return appState.tariffs;
   }
 }
-import * as utils from './utils.js';
-import * as tariffEngine from './tariffEngine.js';
-import * as pvSim from './pvSimulation.js';
-import * as tempoCal from './tempoCalendar.js';
 
+/**
+ * Initialise tous les événements UI de l'application
+ */
+function initializeAllUIEvents() {
+  // Toggle PV
+  const togglePv = document.getElementById('toggle-pv');
+  if (togglePv) {
+    togglePv.addEventListener('change', () => {
+      const pvSettingsContainer = document.getElementById('pv-settings-container');
+      const metricPv = document.getElementById('metric-pv');
+      const isEnabled = togglePv.checked;
+      
+      if (pvSettingsContainer) pvSettingsContainer.style.display = isEnabled ? 'block' : 'none';
+      if (metricPv) metricPv.style.display = isEnabled ? 'flex' : 'none';
+      
+      const btnCalc = document.getElementById('btn-calc-pv');
+      if (btnCalc && isEnabled) setTimeout(() => btnCalc.click(), 100);
+    });
+    togglePv.checked = true;
+    togglePv.dispatchEvent(new Event('change'));
+  }
+  
+  // Bouton Calculer PV
+  const btnCalcPv = document.getElementById('btn-calc-pv');
+  if (btnCalcPv) {
+    btnCalcPv.classList.remove('hidden');
+    
+    btnCalcPv.addEventListener('click', async () => {
+      const fileInput = document.getElementById('file-input');
+      if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        alert('Veuillez d\'abord charger un fichier');
+        return;
+      }
+      
+      const togglePv = document.getElementById('toggle-pv');
+      if (!togglePv || !togglePv.checked) return;
+      
+      if (!appState.records || !appState.records.length) return;
+      
+      const pvConfig = {
+        region: document.getElementById('pv-region')?.value || 'centre',
+        puissance: Number(document.getElementById('pv-kwp')?.value) || 3,
+        standbyW: Number(document.getElementById('pv-standby')?.value) || 0
+      };
+      
+      try {
+        const pvResult = await pvSim.simulateSolarProduction(appState.records, pvConfig);
+        appState.pvResult = pvResult;
+        
+        const pvEl = document.getElementById('val-pv-prod');
+        if (pvEl) {
+          pvEl.textContent = `${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh`;
+        }
+        
+        const btnCompare = document.getElementById('btn-compare-offers');
+        if (btnCompare) setTimeout(() => btnCompare.click(), 100);
+      } catch (e) {
+        console.error('Erreur simulation PV:', e);
+      }
+    });
+  }
+  
+  // Bouton Comparer Offres
+  const btnCompare = document.getElementById('btn-compare-offers');
+  if (btnCompare) {
+    btnCompare.classList.remove('hidden');
+    
+    btnCompare.addEventListener('click', async () => {
+      if (!appState.records || !appState.records.length) {
+        alert('Veuillez d\'abord charger un fichier');
+        return;
+      }
+      await triggerFullRecalculation();
+    });
+  }
+  
+  // Slider ROI
+  const roiSlider = document.getElementById('pv-roi-years');
+  const roiDisplay = document.getElementById('pv-roi-display');
+  if (roiSlider && roiDisplay) {
+    roiSlider.addEventListener('input', (e) => {
+      roiDisplay.textContent = e.target.value + ' ans';
+    });
+    roiSlider.addEventListener('change', () => {
+      const btnCalc = document.getElementById('btn-calc-pv');
+      if (btnCalc) btnCalc.click();
+    });
+  }
+  
+  // Paramètre power kVA
+  const kvaSelect = document.getElementById('param-power-kva');
+  if (kvaSelect) {
+    kvaSelect.addEventListener('change', () => {
+      const val = kvaSelect.value;
+      if (val === 'auto') {
+        appState.currentKva = appState.detectedKva || 6;
+      } else {
+        appState.currentKva = Number(val);
+      }
+      const btnCompare = document.getElementById('btn-compare-offers');
+      if (btnCompare) btnCompare.click();
+    });
+  }
+  
+  // Inputs PV auto-update
+  const pvInputs = ['pv-kwp', 'pv-region', 'pv-standby', 'pv-cost-base', 'pv-cost-panel'];
+  pvInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        const btnCalc = document.getElementById('btn-calc-pv');
+        if (btnCalc) setTimeout(() => btnCalc.click(), 100);
+      });
+    }
+  });
+  
+  // Drag & Drop zone
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+  
+  // Export rapport
+  const btnExport = document.getElementById('btn-export-report');
+  if (btnExport) {
+    btnExport.addEventListener('click', async () => {
+      if (!appState.records || !appState.records.length) {
+        alert('Veuillez d\'abord charger un fichier');
+        return;
+      }
+      
+      const report = {
+        generatedAt: new Date().toISOString(),
+        summary: {
+          totalConsumption: appState.records.reduce((s, r) => s + (Number(r.valeur) || 0), 0),
+          period: {
+            start: appState.records[0]?.dateDebut,
+            end: appState.records[appState.records.length - 1]?.dateFin
+          }
+        },
+        tariffs: appState.tariffResults || {},
+        pv: appState.pvResult || {},
+        settings: {
+          currentKva: appState.currentKva,
+          detectedKva: appState.detectedKva
+        }
+      };
+      
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'rapport_comparatif_elec.json';
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    });
+  }
+  
+  // Bouton thème
+  const btnTheme = document.getElementById('btn-theme-toggle');
+  if (btnTheme) {
+    btnTheme.addEventListener('click', () => {
+      document.body.classList.toggle('dark-theme');
+      localStorage.setItem('theme', document.body.classList.contains('dark-theme') ? 'dark' : 'light');
+    });
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') document.body.classList.add('dark-theme');
+  }
+}
 
 // Branche l'analyse automatique à la sélection de fichier
 document.addEventListener('DOMContentLoaded', () => {
   // Charger les tarifs avant d’autoriser l’analyse
   loadTariffs().then(() => {
     hideTariffErrorBanner();
+    initializeAllUIEvents();
   }).catch(() => {
     // Bannière déjà affichée par loadTariffs
   });
@@ -138,28 +359,62 @@ export async function triggerFullRecalculation() {
   }
   if (!records.length) { alert('Aucune donnée valide trouvée.'); return; }
 
-  // 3. Afficher le dashboard
+  // 3. Afficher le dashboard et rendre visibles les boutons
   const dashboard = document.getElementById('dashboard-section');
   if (dashboard) dashboard.classList.remove('hidden');
+  
+  const btnCalcPv = document.getElementById('btn-calc-pv');
+  if (btnCalcPv) btnCalcPv.classList.remove('hidden');
+  
+  const btnCompare = document.getElementById('btn-compare-offers');
+  if (btnCompare) btnCompare.classList.remove('hidden');
 
-  // 4. Calculs statistiques (total, max, min, moyennes horaires)
-  const hours = Array.from({ length: 24 }, () => []);
-  let total = 0;
-  for (const r of records) {
-    const v = Number(r.valeur); if (isNaN(v)) continue; total += v; const dt = new Date(r.dateDebut); if (isNaN(dt.getTime())) continue; const h = dt.getHours(); hours[h].push(v);
+  // 4. Calculs statistiques avec la fonction utilitaire
+  const stats = computeHourlyStats(records);
+  
+  // Stocker dans appState
+  appState.records = records;
+
+  // 5. Détection automatique kVA
+  let stepDurationHours = 0.5; // 30 min par défaut Enedis
+  if (records.length > 2) {
+    const t1 = new Date(records[0].dateDebut).getTime();
+    const t2 = new Date(records[1].dateDebut).getTime();
+    const diff = Math.abs(t2 - t1);
+    if (diff > 0 && diff < 86400000) stepDurationHours = diff / 3600000;
   }
-  const avg = [], min = [], max = [], count = [];
-  for (let h = 0; h < 24; h++) {
-    const arr = hours[h];
-    if (arr.length === 0) { avg.push(0); min.push(0); max.push(0); count.push(0); }
-    else { const s = arr.reduce((a, b) => a + b, 0); avg.push(s / arr.length); min.push(Math.min(...arr)); max.push(Math.max(...arr)); count.push(arr.length); }
+  
+  const maxValEnergy = Math.max(...stats.max);
+  const maxPowerKw = (stepDurationHours > 0) ? (maxValEnergy / stepDurationHours) : maxValEnergy;
+  
+  const kvaSteps = [3, 6, 9, 12, 15, 18, 24, 30, 36];
+  let recommendedKva = 36;
+  for (const s of kvaSteps) {
+    if (s >= maxPowerKw) {
+      recommendedKva = s;
+      break;
+    }
+  }
+  
+  appState.detectedKva = recommendedKva;
+  
+  const kvaInfo = document.getElementById('power-detected-info');
+  if (kvaInfo) {
+    kvaInfo.textContent = `Max détecté: ${maxPowerKw.toFixed(1)} kW → ${recommendedKva} kVA recommandé`;
+  }
+  
+  const kvaSel = document.getElementById('param-power-kva');
+  if (kvaSel && kvaSel.value === 'auto') {
+    appState.currentKva = recommendedKva;
+  } else if (!appState.currentKva) {
+    appState.currentKva = 6;
   }
 
-  // 5. Afficher la consommation totale
+  // 6. Afficher la consommation totale
   const totalConsoEl = document.getElementById('val-total-conso');
-  if (totalConsoEl) totalConsoEl.textContent = total.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kWh';
+  if (totalConsoEl) totalConsoEl.textContent = stats.total.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' kWh';
 
-  // 6. Rendu du graphique horaire
+  // 7. Rendu du graphique horaire
   const hourlyCanvas = document.getElementById('hourly-chart');
   if (hourlyCanvas && window.Chart) {
     if (window.hourlyChart) { window.hourlyChart.destroy(); window.hourlyChart = null; }
@@ -168,9 +423,9 @@ export async function triggerFullRecalculation() {
       data: {
         labels: Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0') + 'h'),
         datasets: [
-          { type: 'bar', label: 'Moyenne (kWh)', data: avg, backgroundColor: 'rgba(54,162,235,0.6)', yAxisID: 'y' },
-          { type: 'line', label: 'Min (kWh)', data: min, borderColor: 'rgba(75,192,192,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' },
-          { type: 'line', label: 'Max (kWh)', data: max, borderColor: 'rgba(255,99,132,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' }
+          { type: 'bar', label: 'Moyenne (kWh)', data: stats.avg, backgroundColor: 'rgba(54,162,235,0.6)', yAxisID: 'y' },
+          { type: 'line', label: 'Min (kWh)', data: stats.min, borderColor: 'rgba(75,192,192,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' },
+          { type: 'line', label: 'Max (kWh)', data: stats.max, borderColor: 'rgba(255,99,132,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' }
         ]
       },
       options: {
@@ -181,11 +436,9 @@ export async function triggerFullRecalculation() {
     });
   }
 
-  // 7. Rendu du camembert HP/HC (si applicable)
-  // (Utilise la logique de isHourHC du module utils)
+  // 8. Rendu du camembert HP/HC (si applicable)
   try {
-    const { isHourHC, formatNumber } = await import('./utils.js');
-    const hcRange = '22-06';
+    const hcRange = appState.defaults?.hp?.hcRange || appState.defaults?.hphc?.hcRange || '22-06';
     let hpTotal = 0, hcTotal = 0;
     for (const r of records) {
       const v = Number(r.valeur) || 0;
@@ -222,79 +475,87 @@ export async function triggerFullRecalculation() {
         }
       }
     });
-  } catch (e) { }
+  } catch (e) { console.error('Erreur HP/HC pie:', e); }
 
-  // 8. Appel des modules métier pour analyses complètes
+  // 9. Calculs tarifaires complets
   try {
-    // Centraliser l'état
-    const { appState } = await import('./state.js');
-    appState.records = records;
+    // Initialiser le calendrier Tempo si nécessaire
+    try {
+      await tempoCal.ensureTempoDayMap(records);
+    } catch (e) {
+      console.warn('Tempo calendar initialization failed, using fallback', e);
+    }
 
-    // a) Calculs d'offres (tarifs)
-    // On utilise les fonctions du module tariffEngine.js et les tarifs dynamiques de appState.tariffs
+    // Calculs d'offres (tarifs)
     const tariffs = appState.tariffs || {};
     const results = {};
+    const kva = appState.currentKva || 6;
+    
     for (const [id, tariff] of Object.entries(tariffs)) {
+      if (!tariff) continue;
+      
       let res = null;
       try {
+        const sub = (tariff.subscriptions && tariff.subscriptions[kva]) || 0;
+        
         if (id === 'base') {
           res = tariffEngine.computeCostBase(records, tariff);
+          res.cost = (res.cost || 0) + sub;
         } else if (id === 'hphc') {
           res = tariffEngine.computeCostHpHc(records, tariff, tariff.hcRange);
+          res.cost = (res.cost || 0) + sub;
         } else if (id === 'totalCharge') {
           res = tariffEngine.computeCostTotalCharge(records, tariff);
+          res.cost = (res.cost || 0) + sub;
         } else if (id === 'tempo') {
-          // Nécessite le calendrier Tempo (jourMap)
           const dayMap = appState.tempoDayMap || {};
           res = tariffEngine.computeCostTempo(records, dayMap, tariff);
+          res.cost = (res.cost || 0) + sub;
         } else if (id === 'tempoOptimized') {
           const dayMap = appState.tempoDayMap || {};
           res = tariffEngine.computeCostTempoOptimized(records, dayMap, tariff);
+          res.cost = (res.cost || 0) + sub;
         }
+        
         if (res) {
           results[id] = { total: res.cost || 0, ...res };
         }
       } catch (e) {
+        console.error(`Erreur calcul tarif ${id}:`, e);
         results[id] = { total: NaN, error: e.message };
       }
     }
     appState.tariffResults = results;
-    // Affichage tableau comparatif
-    const table = document.getElementById('tariff-table');
-    if (table) {
-      table.innerHTML = '<tr><th>Offre</th><th>Coût annuel (€)</th></tr>' + Object.entries(results).map(([k, v]) => `<tr><td>${k}</td><td>${isNaN(v.total) ? 'Erreur' : v.total.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</td></tr>`).join('');
-    }
+    
+    // Affichage simplifié dans la console
+    console.log('Résultats tarifaires:', results);
 
-    // b) Simulation photovoltaïque
-    const { simulateSolarProduction } = await import('./pvSimulation.js');
-    const pvConfig = appState.pvConfig || { region: 'FR', puissance: 3, orientation: 'S', inclinaison: 30 };
-    const pvResult = await simulateSolarProduction(records, pvConfig);
-    appState.pvResult = pvResult;
-    // Affichage PV
-    const pvEl = document.getElementById('pv-sim-result');
-    if (pvEl) {
-      pvEl.textContent = pvResult ? `Prod. PV estimée : ${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh, autoconsommation : ${pvResult.autoconsommationPct.toFixed(1)}%` : 'Simulation PV indisponible';
-    }
-
-    // Affichage Informations Tarifs (seulement si records chargés)
-    const infoTarifEl = document.getElementById('defaults-display');
-    if (infoTarifEl) {
-      const parent = infoTarifEl.parentElement;
-      if (records && records.length > 0) {
-        infoTarifEl.textContent = JSON.stringify(appState.tariffs, null, 2);
-        if (parent && parent.classList.contains('hidden')) parent.classList.remove('hidden');
-      } else {
-        infoTarifEl.textContent = '';
-        if (parent && !parent.classList.contains('hidden')) parent.classList.add('hidden');
+    // Simulation photovoltaïque (si activée)
+    const togglePv = document.getElementById('toggle-pv');
+    if (togglePv && togglePv.checked) {
+      const pvConfig = {
+        region: document.getElementById('pv-region')?.value || 'centre',
+        puissance: Number(document.getElementById('pv-kwp')?.value) || 3,
+        standbyW: Number(document.getElementById('pv-standby')?.value) || 0
+      };
+      
+      const pvResult = await pvSim.simulateSolarProduction(records, pvConfig);
+      appState.pvResult = pvResult;
+      
+      const pvEl = document.getElementById('val-pv-prod');
+      if (pvEl) {
+        pvEl.textContent = `${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh`;
       }
     }
 
-    // c) Ventilation mensuelle
+    // Ventilation mensuelle basique
     const monthly = Array(12).fill(0);
     for (const r of records) {
-      const dt = new Date(r.dateDebut); if (isNaN(dt.getTime())) continue;
+      const dt = new Date(r.dateDebut);
+      if (isNaN(dt.getTime())) continue;
       monthly[dt.getMonth()] += Number(r.valeur) || 0;
     }
+    
     const monthlyCanvas = document.getElementById('monthly-chart');
     if (monthlyCanvas && window.Chart) {
       if (window.monthlyChart) { window.monthlyChart.destroy(); window.monthlyChart = null; }
@@ -308,28 +569,17 @@ export async function triggerFullRecalculation() {
         options: { responsive: true, scales: { y: { beginAtZero: true } } }
       });
     }
-
-    // d) Calendrier Tempo (si activé)
-    const { getOrGenerateTempoCalendar } = await import('./tempoCalendar.js');
-    if (appState.tariffMode === 'TEMPO') {
-      const tempoCal = await getOrGenerateTempoCalendar(records);
-      appState.tempoCalendar = tempoCal;
-      // Affichage résumé
-      const tempoEl = document.getElementById('tempo-summary');
-      if (tempoEl && tempoCal) {
-        const bleu = tempoCal.filter(d => d.couleur === 'BLEU').length;
-        const blanc = tempoCal.filter(d => d.couleur === 'BLANC').length;
-        const rouge = tempoCal.filter(d => d.couleur === 'ROUGE').length;
-        tempoEl.textContent = `Jours Tempo : ${bleu} bleu, ${blanc} blanc, ${rouge} rouge`;
+    
+    // Rendu du calendrier Tempo si disponible
+    if (appState.tempoDayMap && Object.keys(appState.tempoDayMap).length > 0) {
+      try {
+        const dailyCostMap = tempoCal.computeDailyTempoCostMap(records, appState.tempoDayMap);
+        tempoCal.renderTempoCalendarGraph(appState.tempoDayMap, dailyCostMap);
+      } catch (e) {
+        console.error('Erreur rendering calendrier Tempo:', e);
       }
     }
-
-    // e) Autres indicateurs (taux d'autoconsommation, économies, etc.)
-    const ecoEl = document.getElementById('eco-indicator');
-    if (ecoEl && pvResult && tarifs && tarifs['Base']) {
-      const eco = tarifs['Base'].total - (tarifs['Base'].total - pvResult.economieEstimee);
-      ecoEl.textContent = `Économie PV estimée : ${eco.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`;
-    }
+    
   } catch (err) {
     alert('Erreur lors de l’analyse complète : ' + (err.message || err));
   }

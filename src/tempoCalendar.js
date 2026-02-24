@@ -1,6 +1,7 @@
 // src/tempoCalendar.js
 // Génération et gestion du calendrier Tempo pour comparElecFrance
-import { fmt, isoDateRange } from './utils.js';
+import { fmt, isoDateRange, isHourHC, formatNumber } from './utils.js';
+import { appState } from './state.js';
 
 /**
  * Génère le calendrier Tempo à partir des records (fusionne API, localStorage, algo)
