@@ -1429,6 +1429,7 @@
     // - alloue d'abord la production à la consommation de veille (standbyW en W converti en kWh par heure), puis au reste de la demande
     // records : tableau d'instances horaires {dateDebut, dateFin, valeur}
 
+    const monthlySolarWeights = DEFAULTS.monthlySolarWeights;
     const perHourAnnual = Array.from({length:24}, ()=>0);
     // grouper les enregistrements par mois et compter les jours distincts
     const months = {};
