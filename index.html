@@ -302,25 +302,27 @@
           <h2 class="card-title">Détail Mensuel</h2>
         </div>
         
+        <div id="monthly-results" class="mb-4">
+          <!-- Injected via JS -->
+        </div>
+        
         <div class="grid-2">
-                    <div class="form-group m-0">
-            <label for="pv-cost-base" class="label-small">Coût Fixe (Fixation, Admin, Installation électrique) €</label>
-            <input id="pv-cost-base" type="number" value="500" step="50">
+          <div>
+            <h4 class="mb-4">Consommation Mensuelle</h4>
+            <canvas id="monthly-chart" height="250"></canvas>
           </div>
-          <div class="form-group m-0">
-            <label for="pv-cost-panel" class="label-small">Coût par Panneau (400Wc) avec micro-onduleur €</label>
-            <input id="pv-cost-panel" type="number" value="200" step="10">
+          <div>
+            <h4 class="mb-4">Économies Mensuelles avec PV</h4>
+            <canvas id="monthly-savings-chart" height="250"></canvas>
           </div>
         </div>
-        <div class="form-group separator">
-          <label for="pv-roi-years" class="label-small flex justify-between">
-            <span>Durée cible rentabilité</span>
-            <span id="pv-roi-display" class="text-primary font-bold">15 ans</span>
-          </label>
-          <input id="pv-roi-years" type="range" min="5" max="25" value="15" step="1" class="w-100">
-        </div>
+      </section>
+
+      <!-- Calendrier TEMPO -->
+      <section class="card mb-4">
+        <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('tempo-content').classList.toggle('hidden'); this.querySelector('.arrow-icon').classList.toggle('rotated');">
           <h2 class="card-title">Calendrier TEMPO Reconstitué</h2>
-           <span class="arrow-icon">▼</span>
+          <span class="arrow-icon">▼</span>
         </div>
         
         <div id="tempo-content" class="hidden">

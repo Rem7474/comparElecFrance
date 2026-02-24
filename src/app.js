@@ -1,10 +1,12 @@
 // src/app.js
 // Point d'entrée principal de comparElecFrance (SPA)
 import { appState } from './state.js';
-import { isHourHC, formatNumber, computeHourlyStats } from './utils.js';
+import { isHourHC, formatNumber, computeHourlyStats as computeHourlyStatsUtil } from './utils.js';
 import * as tariffEngine from './tariffEngine.js';
-import * as pvSim from './pvSimulation.js';
-import * as tempoCal from './tempoCalendar.js';
+import * as pvSimulation from './pvSimulation.js';
+import * as tempoCalendar from './tempoCalendar.js';
+
+const utils = { isHourHC, formatNumber, computeHourlyStats: computeHourlyStatsUtil };
 
 function showTariffErrorBanner(msg) {
   let banner = document.getElementById('tariff-error-banner');
@@ -103,8 +105,11 @@ function initializeAllUIEvents() {
       const isEnabled = togglePv.checked;
       if (pvSettingsContainer) pvSettingsContainer.style.display = isEnabled ? 'block' : 'none';
       if (metricPv) metricPv.style.display = isEnabled ? 'flex' : 'none';
-      const btnCalc = document.getElementById('btn-calc-pv');
-      if (btnCalc && isEnabled) setTimeout(() => btnCalc.click(), 100);
+      // Seulement recalculer si des données existent
+      if (isEnabled && appState.records && appState.records.length) {
+        const btnCalc = document.getElementById('btn-calc-pv');
+        if (btnCalc) setTimeout(() => btnCalc.click(), 100);
+      }
     });
     togglePv.checked = true;
     togglePv.dispatchEvent(new Event('change'));
@@ -128,7 +133,7 @@ function initializeAllUIEvents() {
         standbyW: Number(document.getElementById('pv-standby')?.value) || 0
       };
       try {
-        const pvResult = await pvSim.simulateSolarProduction(appState.records, pvConfig);
+        const pvResult = await pvSimulation.simulateSolarProduction(appState.records, pvConfig);
         appState.pvResult = pvResult;
         const pvEl = document.getElementById('val-pv-prod');
         if (pvEl) pvEl.textContent = `${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh`;
@@ -179,6 +184,7 @@ function initializeAllUIEvents() {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
+        savePvSettings();
         const btnCalc = document.getElementById('btn-calc-pv');
         if (btnCalc) setTimeout(() => btnCalc.click(), 100);
       });
@@ -251,6 +257,7 @@ function initializeAllUIEvents() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    loadPvSettings();
     await loadTariffs();
     hideTariffErrorBanner();
     initializeAllUIEvents();
@@ -289,6 +296,315 @@ function displayTariffComparison(results) {
   
   html += '</tbody></table>';
   container.innerHTML = html;
+  
+  // Afficher aussi le graphique comparatif
+  if (window.Chart && document.getElementById('offers-chart')) {
+    if (window.offersChart) { window.offersChart.destroy(); window.offersChart = null; }
+    const ctx = document.getElementById('offers-chart').getContext('2d');
+    const labels = sortedResults.map(([id]) => ({ base: 'Base', hphc: 'HP/HC', tempo: 'Tempo', tempoOptimized: 'Tempo+', totalCharge: 'Total' }[id] || id));
+    const costs = sortedResults.map(([, r]) => r.total || 0);
+    window.offersChart = new window.Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Coût annuel (€)',
+          data: costs,
+          backgroundColor: [
+            'rgba(54,162,235,0.6)',
+            'rgba(75,192,192,0.6)',
+            'rgba(255,99,132,0.6)',
+            'rgba(255,159,64,0.6)',
+            'rgba(153,102,255,0.6)'
+          ]
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true, title: { display: true, text: 'Coût annuel (€)' } } }
+      }
+    });
+  }
+}
+
+function displayMonthlyBreakdown(records, tariffResults) {
+  const container = document.getElementById('monthly-results');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  // Grouper par mois
+  const months = {};
+  for (const r of records) {
+    const monthKey = r.dateDebut.slice(0, 7);
+    if (!months[monthKey]) months[monthKey] = [];
+    months[monthKey].push(r);
+  }
+
+  let html = '<h4>Détails par mois</h4><table class="tariff-table"><thead><tr><th>Mois</th><th>Conso (kWh)</th><th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th></tr></thead><tbody>';
+  
+  for (const [monthKey, monthRecs] of Object.entries(months).sort()) {
+    const totalConso = monthRecs.reduce((s, r) => s + (Number(r.valeur) || 0), 0);
+    
+    // Calcul chaque tarif
+    const baseCost = tariffEngine.computeCostBase(monthRecs, appState.defaults.base)?.cost || 0;
+    const hphcCost = tariffEngine.computeCostHpHc(monthRecs, appState.defaults.hphc)?.cost || 0;
+    const tempoCost = tariffEngine.computeCostTempo(monthRecs, appState.tempoDayMap || {}, appState.defaults.tempo)?.cost || 0;
+    
+    html += `<tr><td>${monthKey}</td><td>${totalConso.toFixed(1)}</td><td>${baseCost.toFixed(2)}</td><td>${hphcCost.toFixed(2)}</td><td>${tempoCost.toFixed(2)}</td></tr>`;
+  }
+  
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function displayPvResults(pvResult) {
+  const container = document.getElementById('pv-results');
+  if (!container || !pvResult) return;
+  
+  container.classList.remove('hidden');
+  container.innerHTML = `
+    <div style="padding: 16px; background: #f3f2f1; border-radius: 4px; margin-top: 16px;">
+      <h4>Simulation Photovoltaïque</h4>
+      <p><strong>Production annuelle estimée:</strong> ${(pvResult.production || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh</p>
+      <p><strong>Autoconsommation estimée:</strong> ${(pvResult.selfConsumed || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh</p>
+      <p><strong>Injection réseau:</strong> ${((pvResult.production || 0) - (pvResult.selfConsumed || 0)).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh</p>
+      <p><strong>Économies potentielles:</strong> <span style="color: #107c10; font-weight: bold;">${(pvResult.savings || 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} € / an</span></p>
+    </div>
+  `;
+}
+
+function displaySavingsComparison(records, tariffResults, pvResult) {
+  if (!pvResult || !appState.tariffResults) return;
+  
+  // Créer un graphique de comparaison des tarifs avec/sans PV
+  const canvas = document.getElementById('price-pv-chart');
+  if (!canvas || !window.Chart) return;
+  
+  if (window.savingsChart) { window.savingsChart.destroy(); window.savingsChart = null; }
+  
+  const ctx = canvas.getContext('2d');
+  const tariffNames = {
+    base: 'Base',
+    hphc: 'HP/HC',
+    tempo: 'Tempo',
+    tempoOptimized: 'Tempo+',
+    totalCharge: 'Total'
+  };
+  
+  // Calcul simplifié : économies estimées par tarif
+  const labels = Object.entries(tariffResults)
+    .filter(([, r]) => !isNaN(r.total))
+    .map(([id]) => tariffNames[id] || id);
+  
+  const costWithoutPv = Object.values(tariffResults)
+    .filter(r => !isNaN(r.total))
+    .map(r => r.total || 0);
+  
+  // Économies estimées : (production * taux d'autoconsommation * prix moyen) / tarifResults count
+  const avgCostWithoutPv = costWithoutPv.reduce((a, b) => a + b, 0) / costWithoutPv.length || 1;
+  const savingsRatio = (pvResult.savings || 0) / costWithoutPv.length;
+  const costWithPv = costWithoutPv.map(cost => Math.max(0, cost - savingsRatio));
+  
+  window.savingsChart = new window.Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Coût sans PV (€)',
+          data: costWithoutPv,
+          backgroundColor: 'rgba(255,99,132,0.6)',
+          borderColor: 'rgba(255,99,132,1)',
+          borderWidth: 1
+        },
+        {
+          label: 'Coût avec PV (€)',
+          data: costWithPv,
+          backgroundColor: 'rgba(75,192,192,0.6)',
+          borderColor: 'rgba(75,192,192,1)',
+          borderWidth: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Coût annuel (€)' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.parsed.y;
+              return `${ctx.dataset.label}: ${val.toFixed(2)} €`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function displayMonthlySavingsChart(records, tariffResults) {
+  const canvas = document.getElementById('monthly-savings-chart');
+  if (!canvas || !window.Chart) return;
+  
+  if (window.monthlySavingsChart) { window.monthlySavingsChart.destroy(); window.monthlySavingsChart = null; }
+  
+  // Grouper par mois et calculer les économies potentielles
+  const months = {};
+  for (const r of records) {
+    const monthKey = r.dateDebut.slice(0, 7);
+    if (!months[monthKey]) months[monthKey] = [];
+    months[monthKey].push(r);
+  }
+  
+  const monthLabels = Object.keys(months).sort();
+  const savingsData = monthLabels.map(monthKey => {
+    const monthRecs = months[monthKey];
+    const baseCost = tariffEngine.computeCostBase(monthRecs, appState.defaults.base)?.cost || 0;
+    const hphcCost = tariffEngine.computeCostHpHc(monthRecs, appState.defaults.hphc)?.cost || 0;
+    const tempoCost = tariffEngine.computeCostTempo(monthRecs, appState.tempoDayMap || {}, appState.defaults.tempo)?.cost || 0;
+    
+    const minCost = Math.min(baseCost, hphcCost, tempoCost);
+    return minCost;
+  });
+  
+  const ctx = canvas.getContext('2d');
+  window.monthlySavingsChart = new window.Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: monthLabels,
+      datasets: [{
+        label: 'Coût minimum mensuel (€)',
+        data: savingsData,
+        borderColor: 'rgba(107, 174, 214, 1)',
+        backgroundColor: 'rgba(107, 174, 214, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: 'rgba(107, 174, 214, 1)',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Coût (€)' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `Coût: ${ctx.parsed.y.toFixed(2)} €`
+          }
+        }
+      }
+    }
+  });
+}
+
+function displayAnalysisSummary(records, tariffResults) {
+  const summaryDiv = document.getElementById('analysis-summary');
+  if (!summaryDiv) return;
+  
+  summaryDiv.classList.remove('hidden');
+  
+  const totalConsumption = records.reduce((s, r) => s + (Number(r.valeur) || 0), 0);
+  const bestTariff = Object.entries(tariffResults)
+    .filter(([, r]) => !isNaN(r.total))
+    .reduce((best, [id, res]) => (!best || (res.total || 0) < (best.total || 0)) ? { id, ...res } : best, null);
+  
+  const tariffNames = {
+    base: 'Base',
+    hphc: 'HP/HC',
+    tempo: 'Tempo',
+    tempoOptimized: 'Tempo+',
+    totalCharge: 'Total'
+  };
+  
+  const monthCount = new Set(records.map(r => r.dateDebut.slice(0, 7))).size;
+  const avgMonthly = totalConsumption / monthCount;
+  
+  summaryDiv.innerHTML = `
+    <div style="background: linear-gradient(135deg, #4e79a7 0%, #2c5283 100%); padding: 20px; border-radius: 6px; color: white; margin: 16px 0;">
+      <h3 style="margin-top: 0; color: #fff;">📊 Résumé Analysé</h3>
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; font-size: 14px;">
+        <div>
+          <div style="opacity: 0.8;">Puissance détectée</div>
+          <div style="font-size: 18px; font-weight: bold;">${appState.detectedKva} kVA</div>
+        </div>
+        <div>
+          <div style="opacity: 0.8;">Total annuel</div>
+          <div style="font-size: 18px; font-weight: bold;">${totalConsumption.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh</div>
+        </div>
+        <div>
+          <div style="opacity: 0.8;">Moyenne mensuelle</div>
+          <div style="font-size: 18px; font-weight: bold;">${avgMonthly.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh</div>
+        </div>
+        <div>
+          <div style="opacity: 0.8;">Meilleure offre</div>
+          <div style="font-size: 18px; font-weight: bold;">${bestTariff ? tariffNames[bestTariff.id] || bestTariff.id : 'N/A'}</div>
+        </div>
+      </div>
+      ${bestTariff ? `<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.3);">
+        <strong>${tariffNames[bestTariff.id] || bestTariff.id}:</strong> ${(bestTariff.total || 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} € / an
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function savePvSettings() {
+  const settings = {
+    pvKwp: document.getElementById('pv-kwp')?.value || '3',
+    pvRegion: document.getElementById('pv-region')?.value || 'centre',
+    pvStandby: document.getElementById('pv-standby')?.value || '50',
+    pvCostBase: document.getElementById('pv-cost-base')?.value || '500',
+    pvCostPanel: document.getElementById('pv-cost-panel')?.value || '200',
+    pvRoiYears: document.getElementById('pv-roi-years')?.value || '15'
+  };
+  localStorage.setItem('comparatifElec.pvSettings', JSON.stringify(settings));
+  console.log('Paramètres PV sauvegardés:', settings);
+}
+
+function loadPvSettings() {
+  const stored = localStorage.getItem('comparatifElec.pvSettings');
+  if (!stored) return;
+  
+  try {
+    const settings = JSON.parse(stored);
+    if (settings.pvKwp && document.getElementById('pv-kwp')) {
+      document.getElementById('pv-kwp').value = settings.pvKwp;
+    }
+    if (settings.pvRegion && document.getElementById('pv-region')) {
+      document.getElementById('pv-region').value = settings.pvRegion;
+    }
+    if (settings.pvStandby && document.getElementById('pv-standby')) {
+      document.getElementById('pv-standby').value = settings.pvStandby;
+    }
+    if (settings.pvCostBase && document.getElementById('pv-cost-base')) {
+      document.getElementById('pv-cost-base').value = settings.pvCostBase;
+    }
+    if (settings.pvCostPanel && document.getElementById('pv-cost-panel')) {
+      document.getElementById('pv-cost-panel').value = settings.pvCostPanel;
+    }
+    if (settings.pvRoiYears && document.getElementById('pv-roi-years')) {
+      document.getElementById('pv-roi-years').value = settings.pvRoiYears;
+      const display = document.getElementById('pv-roi-display');
+      if (display) display.textContent = settings.pvRoiYears + ' ans';
+    }
+    console.log('Paramètres PV restaurés:', settings);
+  } catch (e) {
+    console.warn('Erreur restauration PV settings:', e);
+  }
 }
 
 export async function triggerFullRecalculation() {
@@ -339,7 +655,7 @@ export async function triggerFullRecalculation() {
   const dashboard = document.getElementById('dashboard-section');
   if (dashboard) dashboard.classList.remove('hidden');
 
-  const stats = computeHourlyStats(records);
+  const stats = utils.computeHourlyStats(records);
   appState.records = records;
 
   let stepDurationHours = 0.5;
@@ -432,7 +748,7 @@ export async function triggerFullRecalculation() {
   } catch (e) { console.error('Erreur HP/HC:', e); }
 
   try {
-    await tempoCal.ensureTempoDayMap(records);
+    await tempoCalendar.ensureTempoDayMap(records);
   } catch (e) {
     console.warn('Tempo init failed:', e);
   }
@@ -471,7 +787,10 @@ export async function triggerFullRecalculation() {
     }
     appState.tariffResults = results;
     console.log('Tarifs calculés:', results);
+    displayAnalysisSummary(records, results);
     displayTariffComparison(results);
+    displayMonthlyBreakdown(records, results);
+    displayMonthlySavingsChart(records, results);
   } catch (err) {
     console.error('Erreur calculs tarifaires:', err);
   }
@@ -484,8 +803,10 @@ export async function triggerFullRecalculation() {
         puissance: Number(document.getElementById('pv-kwp')?.value) || 3,
         standbyW: Number(document.getElementById('pv-standby')?.value) || 0
       };
-      const pvResult = await pvSim.simulateSolarProduction(records, pvConfig);
+      const pvResult = await pvSimulation.simulateSolarProduction(appState.records, pvConfig);
       appState.pvResult = pvResult;
+      displayPvResults(pvResult);
+      displaySavingsComparison(records, appState.tariffResults, pvResult);
       const pvEl = document.getElementById('val-pv-prod');
       if (pvEl) pvEl.textContent = `${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh`;
     } catch (e) {
@@ -514,8 +835,8 @@ export async function triggerFullRecalculation() {
   
   if (appState.tempoDayMap && Object.keys(appState.tempoDayMap).length > 0) {
     try {
-      const dailyCostMap = tempoCal.computeDailyTempoCostMap(records, appState.tempoDayMap);
-      tempoCal.renderTempoCalendarGraph(appState.tempoDayMap, dailyCostMap);
+      const dailyCostMap = tempoCalendar.computeDailyTempoCostMap(records, appState.tempoDayMap);
+      tempoCalendar.renderTempoCalendarGraph(appState.tempoDayMap, dailyCostMap);
     } catch (e) {
       console.error('Erreur Tempo graph:', e);
     }
