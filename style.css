@@ -449,6 +449,42 @@ th, td { padding: 12px; border-bottom: 1px solid var(--border-color); text-align
 th { font-weight: 600; color: var(--text-secondary); text-transform: uppercase; font-size: 0.85rem; }
 tr:last-child td { border-bottom: none; }
 
+/* Tariff Comparison Table */
+.tariff-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.tariff-table thead {
+  background: var(--bg-hover);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tariff-table th, .tariff-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.tariff-table tbody tr {
+  transition: background 0.2s;
+}
+
+.tariff-table tbody tr:hover {
+  background: rgba(0, 120, 212, 0.05);
+}
+
+.tariff-table tbody tr:first-child {
+  background: rgba(16, 124, 16, 0.05);
+  font-weight: 600;
+}
+
+.tariff-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 /* Toggle Switch */
 .switch {
   position: relative;
