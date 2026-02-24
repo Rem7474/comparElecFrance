@@ -140,6 +140,75 @@ export async function triggerFullRecalculation() {
     });
   } catch (e) { }
 
-  // 8. TODO : Appeler les autres modules pour simulation PV, calculs d'offres, ventilation mensuelle, calendrier Tempo, etc.
-  // (À compléter pour la migration totale du comportement)
+  // 8. Appel des modules métier pour analyses complètes
+  try {
+    // Centraliser l'état
+    const { appState } = await import('./state.js');
+    appState.records = records;
+
+    // a) Calculs d'offres (tarifs)
+    const { calculateAllTariffs } = await import('./tariffEngine.js');
+    const tarifs = await calculateAllTariffs(records);
+    appState.tariffResults = tarifs;
+    // Affichage tableau comparatif
+    const table = document.getElementById('tariff-table');
+    if (table) {
+      table.innerHTML = '<tr><th>Offre</th><th>Coût annuel (€)</th></tr>' + Object.entries(tarifs).map(([k, v]) => `<tr><td>${k}</td><td>${v.total.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</td></tr>`).join('');
+    }
+
+    // b) Simulation photovoltaïque
+    const { simulateSolarProduction } = await import('./pvSimulation.js');
+    const pvConfig = appState.pvConfig || { region: 'FR', puissance: 3, orientation: 'S', inclinaison: 30 };
+    const pvResult = await simulateSolarProduction(records, pvConfig);
+    appState.pvResult = pvResult;
+    // Affichage PV
+    const pvEl = document.getElementById('pv-sim-result');
+    if (pvEl) {
+      pvEl.textContent = pvResult ? `Prod. PV estimée : ${pvResult.production.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} kWh, autoconsommation : ${pvResult.autoconsommationPct.toFixed(1)}%` : 'Simulation PV indisponible';
+    }
+
+    // c) Ventilation mensuelle
+    const monthly = Array(12).fill(0);
+    for (const r of records) {
+      const dt = new Date(r.dateDebut); if (isNaN(dt.getTime())) continue;
+      monthly[dt.getMonth()] += Number(r.valeur) || 0;
+    }
+    const monthlyCanvas = document.getElementById('monthly-chart');
+    if (monthlyCanvas && window.Chart) {
+      if (window.monthlyChart) { window.monthlyChart.destroy(); window.monthlyChart = null; }
+      const ctx = monthlyCanvas.getContext('2d');
+      window.monthlyChart = new window.Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'],
+          datasets: [{ label: 'Conso (kWh)', data: monthly, backgroundColor: 'rgba(54,162,235,0.6)' }]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    // d) Calendrier Tempo (si activé)
+    const { getOrGenerateTempoCalendar } = await import('./tempoCalendar.js');
+    if (appState.tariffMode === 'TEMPO') {
+      const tempoCal = await getOrGenerateTempoCalendar(records);
+      appState.tempoCalendar = tempoCal;
+      // Affichage résumé
+      const tempoEl = document.getElementById('tempo-summary');
+      if (tempoEl && tempoCal) {
+        const bleu = tempoCal.filter(d => d.couleur === 'BLEU').length;
+        const blanc = tempoCal.filter(d => d.couleur === 'BLANC').length;
+        const rouge = tempoCal.filter(d => d.couleur === 'ROUGE').length;
+        tempoEl.textContent = `Jours Tempo : ${bleu} bleu, ${blanc} blanc, ${rouge} rouge`;
+      }
+    }
+
+    // e) Autres indicateurs (taux d'autoconsommation, économies, etc.)
+    const ecoEl = document.getElementById('eco-indicator');
+    if (ecoEl && pvResult && tarifs && tarifs['Base']) {
+      const eco = tarifs['Base'].total - (tarifs['Base'].total - pvResult.economieEstimee);
+      ecoEl.textContent = `Économie PV estimée : ${eco.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`;
+    }
+  } catch (err) {
+    alert('Erreur lors de l’analyse complète : ' + (err.message || err));
+  }
 }
