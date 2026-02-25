@@ -11,8 +11,7 @@ import {
   computeCostTotalCharge,
   computeCostTempo,
   computeCostTempoOptimized,
-  applyPvReduction,
-  computeCostWithProfile
+  applyPvReduction
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 
@@ -231,31 +230,6 @@ export function compareAllOffers(records, isPvEnabled, pvParams, defaults) {
   const subTch = (Number(defaults.totalChargeHeures?.sub) || 0) * monthsCount;
 
   // Compute costs without PV
-  function computeCostWithProfile(perHour, priceVal, hpParams) {
-    let cost = 0;
-    let hpCost = 0;
-    let hcCost = 0;
-    
-    if (hpParams.mode === 'base') {
-      for (let h = 0; h < 24; h++) {
-        cost += perHour[h] * priceVal;
-      }
-      return { cost, hpCost: 0, hcCost: 0 };
-    }
-
-    for (let h = 0; h < 24; h++) {
-      const qty = perHour[h] || 0;
-      if (isHourHC(h, hpParams.hcRange)) {
-        hcCost += qty * hpParams.phc;
-      } else {
-        hpCost += qty * hpParams.php;
-      }
-    }
-
-    cost = hpCost + hcCost;
-    return { cost, hpCost, hcCost };
-  }
-
   const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'base' }).cost + subBase;
   const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost + subHp;
   const tempoResNoPV = computeCostTempo(records, {}, defaults.tempo);
