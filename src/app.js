@@ -1207,14 +1207,7 @@ try {
   // ignore
 }
 
-// Setup input bindings via workflowEngine
-setupSubscriptionInputBindings(DEFAULTS, applySubscriptionInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
-setupTotalChargeInputBindings(DEFAULTS, applyTotalChargeHeuresInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
-setupHcRangeInputBinding(DEFAULTS, applyHcRangeInput, populateDefaultsDisplayUI, triggerFullRecalculation);
-
-populateDefaultsDisplayUI(DEFAULTS);
-
-// OPTIMIZATION: Use workflow engine for coordinated recalculation
+// OPTIMIZATION: Use workflow engine for coordinated recalculation - define BEFORE use in setup functions
 const triggerFullRecalculation = () => workflowTriggerRecalc(
   fileInput,
   getRecordsFromCache,
@@ -1225,8 +1218,15 @@ const triggerFullRecalculation = () => workflowTriggerRecalc(
   runPvSimulation,
   DEFAULTS,
   tempoLoading,
-  appendAnalysisLog
+  (msg) => appendLog(analysisLog, msg)
 );
+
+// Setup input bindings via workflowEngine
+setupSubscriptionInputBindings(DEFAULTS, applySubscriptionInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
+setupTotalChargeInputBindings(DEFAULTS, applyTotalChargeHeuresInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
+setupHcRangeInputBinding(DEFAULTS, applyHcRangeInput, populateDefaultsDisplayUI, triggerFullRecalculation);
+
+populateDefaultsDisplayUI(DEFAULTS);
 
 // File input listener is now managed by uiManager.js
 
