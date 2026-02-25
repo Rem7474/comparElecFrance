@@ -1033,8 +1033,22 @@ async function compareOffers(records) {
   offers.length = 0;
   offers.push(...orderedOffers);
 
-  const bestId = bestByCost ? bestByCost.id : null;
+  // Exclude tempoOpt from being automatically selected as best offer (requires behavior change)
+  const validBest = sortedByCost.find((o) => o.id !== 'tempoOpt');
+  const bestId = validBest ? validBest.id : null;
   const worstOffer = worstByCost || null;
+
+  // Consistent color mapping based on offer ID, not index
+  const getOfferColor = (offerId) => {
+    const colorMap = {
+      'base': '#4e79a7',
+      'hphc': '#f28e2b',
+      'tempo': '#59a14f',
+      'tempoOpt': '#117a8b',
+      'tch': '#d62728'
+    };
+    return colorMap[offerId] || '#a0cbe8';
+  };
 
   const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg) => {
     const div = document.createElement('div');
@@ -1132,23 +1146,23 @@ async function compareOffers(records) {
     }
   }
 
-  // Build chart data from dynamic offers
+  // Build chart data from dynamic offers with consistent coloring by offer ID
   const labels = [];
   const values = [];
   const bgColors = [];
-  const colorPalette = ['#4e79a7', '#f28e2b', '#59a14f', '#d62728', '#117a8b', '#a0cbe8', '#ffbe7d', '#bfe5b9', '#ff9896', '#17a2b8'];
   offers.forEach((ofr, idx) => {
+    const offerColor = getOfferColor(ofr.id);
     if (isPvEnabled) {
       labels.push(`${ofr.name} (sans PV)`);
       labels.push(`${ofr.name} (avec PV)`);
       values.push(ofr.costNoPV);
       values.push(ofr.costWithPV);
-      bgColors.push(colorPalette[idx % colorPalette.length]);
-      bgColors.push(colorPalette[(idx + 1) % colorPalette.length]);
+      bgColors.push(offerColor);
+      bgColors.push(offerColor);
     } else {
       labels.push(ofr.name);
       values.push(ofr.costNoPV);
-      bgColors.push(colorPalette[idx % colorPalette.length]);
+      bgColors.push(offerColor);
     }
   });
 

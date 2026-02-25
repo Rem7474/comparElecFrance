@@ -234,21 +234,34 @@ export function renderOffersChart(offers, isPvEnabled, canvasElement) {
   const ctx = canvasElement.getContext('2d');
   const labels = [];
   const values = [];
-  const bgColors = ['#4e79a7', '#f28e2b', '#59a14f', '#d62728', '#117a8b'];
+  
+  // Consistent color mapping based on offer ID
+  const getOfferColor = (offerId) => {
+    const colorMap = {
+      'base': '#4e79a7',
+      'hphc': '#f28e2b',
+      'tempo': '#59a14f',
+      'tempoOpt': '#117a8b',
+      'tch': '#d62728'
+    };
+    return colorMap[offerId] || '#a0cbe8';
+  };
+  
   const colors = [];
   
-  offers.forEach((ofr, idx) => {
+  offers.forEach((ofr) => {
+    const offerColor = getOfferColor(ofr.id);
     if (isPvEnabled) {
       labels.push(`${ofr.name} (sans PV)`);
       labels.push(`${ofr.name} (avec PV)`);
       values.push(ofr.costNoPV);
       values.push(ofr.costWithPV);
-      colors.push(bgColors[idx % bgColors.length]);
-      colors.push(bgColors[(idx + 1) % bgColors.length]);
+      colors.push(offerColor);
+      colors.push(offerColor);
     } else {
       labels.push(ofr.name);
       values.push(ofr.costNoPV);
-      colors.push(bgColors[idx % bgColors.length]);
+      colors.push(offerColor);
     }
   });
   
