@@ -1,10 +1,10 @@
 /**
- * analysisEngine.js - Analysis orchestration and computation engine
+ * analysis Engine.js - Analysis orchestration and computation engine
  * Handles all business logic for consumption analysis and cost calculations
  * @module analysisEngine
  */
 
-import { formatNumber, isHourHC } from './utils.js';
+import { formatNumber, isHourHC, monthKeyFromDateStr } from './utils.js';
 import {
   computeCostBase,
   computeCostHpHc,
@@ -599,4 +599,238 @@ export function buildOffersData(records, params) {
     bestId,
     worstOffer
   };
+}
+
+/**
+ * Compute cost with hourly profile (Base, HP/HC, or TCH)
+ * @param {Array} perHourAnnual - Annual consumption per hour [24]
+ * @param {number} priceBase - Base price per kWh
+ * @param {Object} hpParams - HP/HC parameters { mode, php, phc, hcRange, phsc?, hscRange? }
+ * @returns {Object} { cost, hpCost, hcCost, hscCost? }
+ */
+export function computeCostWithProfile(perHourAnnual, priceBase, hpParams) {
+  let cost = 0;
+  let hpCost = 0;
+  let hcCost = 0;
+  if (hpParams.mode === 'base') {
+    for (let h = 0; h < 24; h += 1) cost += perHourAnnual[h] * priceBase;
+    return { cost, hpCost: 0, hcCost: 0 };
+  }
+  if (hpParams.mode === 'tch') {
+    let hscCost = 0;
+    for (let h = 0; h < 24; h += 1) {
+      const qty = perHourAnnual[h] || 0;
+      if (hpParams.hscRange && isHourHC(h, hpParams.hscRange)) {
+        hscCost += qty * hpParams.phsc;
+      } else if (isHourHC(h, hpParams.hcRange)) {
+        hcCost += qty * hpParams.phc;
+      } else {
+        hpCost += qty * hpParams.php;
+      }
+    }
+    cost = hpCost + hcCost + hscCost;
+    return { cost, hpCost, hcCost, hscCost };
+  }
+
+  for (let h = 0; h < 24; h += 1) {
+    const qty = perHourAnnual[h] || 0;
+    if (isHourHC(h, hpParams.hcRange)) {
+      hcCost += qty * hpParams.phc;
+    } else {
+      hpCost += qty * hpParams.php;
+    }
+  }
+  cost = hpCost + hcCost;
+  return { cost, hpCost, hcCost };
+}
+
+/**
+ * Calculate standby power consumption from daytime records
+ * @param {Array} records - Consumption records
+ * @returns {number} Estimated standby power in Watts
+ */
+export function calculateStandbyFromRecords(records) {
+  const dayRecords = records.filter((rec) => {
+    const h = new Date(rec.dateDebut).getHours();
+    return h >= 10 && h < 16;
+  });
+  if (!dayRecords.length) throw new Error('Pas de données de jour');
+  const powers = dayRecords
+    .map((rec) => {
+      const durationMs = new Date(rec.dateFin) - new Date(rec.dateDebut);
+      const durationHours = durationMs / (1000 * 60 * 60);
+      if (durationHours <= 0) return 0;
+      const kw = Number(rec.valeur) / durationHours;
+      return kw * 1000;
+    })
+    .filter((p) => p > 0)
+    .sort((a, b) => a - b);
+  const idx = Math.floor(powers.length * 0.35);
+  return Math.round(powers[idx]);
+}
+
+/**
+ * Compute daily cost map for Tempo calendar
+ * @param {Array} records - Consumption records
+ * @param {Object} dayMap - Tempo day color map
+ * @param {Object} tempoTariff - Tempo tariff config
+ * @returns {Object} Daily cost breakdown { date: { energy, cost, hpCost, hcCost, color } }
+ */
+export function computeDailyTempoCostMap(records, dayMap, tempoTariff) {
+  const out = {};
+  const getRates = (entry, colorLetter) => {
+    if (entry && typeof entry === 'object' && entry.rates) {
+      return { hp: Number(entry.rates.hp) || 0, hc: Number(entry.rates.hc) || 0 };
+    }
+    const key = colorLetter === 'R' ? 'red' : colorLetter === 'W' ? 'white' : 'blue';
+    const def = tempoTariff && tempoTariff[key];
+    if (def && typeof def === 'object') return { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
+    return { hp: Number(def) || 0, hc: Number(def) || 0 };
+  };
+
+  for (const rec of records) {
+    const dt = new Date(rec.dateDebut);
+    const h = dt.getHours();
+    const dateStr = dt.toISOString().slice(0, 10);
+    let bucketDateStr;
+    let colorLetter;
+    let isHC;
+    if (h < 6) {
+      const prev = new Date(dt);
+      prev.setDate(prev.getDate() - 1);
+      bucketDateStr = prev.toISOString().slice(0, 10);
+      const entryPrev = dayMap[bucketDateStr] || 'B';
+      colorLetter = typeof entryPrev === 'string' ? entryPrev.toUpperCase() : ((entryPrev && entryPrev.color) ? String(entryPrev.color).toUpperCase() : 'B');
+      isHC = true;
+    } else if (h >= 22) {
+      bucketDateStr = dateStr;
+      const entryCur = dayMap[bucketDateStr] || 'B';
+      colorLetter = typeof entryCur === 'string' ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
+      isHC = true;
+    } else {
+      bucketDateStr = dateStr;
+      const entryCur = dayMap[bucketDateStr] || 'B';
+      colorLetter = typeof entryCur === 'string' ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
+      isHC = false;
+    }
+    const entryForBucket = dayMap[bucketDateStr] || 'B';
+    const rates = getRates(entryForBucket, colorLetter);
+    const applied = isHC ? rates.hc : rates.hp;
+    const v = Number(rec.valeur) || 0;
+    if (!out[bucketDateStr]) {
+      out[bucketDateStr] = { energy: 0, cost: 0, hpCost: 0, hcCost: 0, hpEnergy: 0, hcEnergy: 0, color: colorLetter };
+    }
+    out[bucketDateStr].energy += v;
+    out[bucketDateStr].cost += v * applied;
+    if (isHC) {
+      out[bucketDateStr].hcCost += v * applied;
+      out[bucketDateStr].hcEnergy += v;
+    } else {
+      out[bucketDateStr].hpCost += v * applied;
+      out[bucketDateStr].hpEnergy += v;
+    }
+    out[bucketDateStr].color = colorLetter;
+  }
+
+  return out;
+}
+
+/**
+ * Compute monthly breakdown of consumption and costs
+ * @param {Array} records - Consumption records
+ * @param {Object} tempoDayMap - Tempo calendar
+ * @param {Object} tariffs - Tariff configuration (DEFAULTS)
+ * @param {Object} appState - Application state
+ * @returns {Array} Monthly breakdown data
+ */
+export function computeMonthlyBreakdown(records, tempoDayMap, tariffs, appState) {
+  const months = {};
+  for (const rec of records) {
+    const key = monthKeyFromDateStr(rec.dateDebut);
+    if (!months[key]) months[key] = [];
+    months[key].push(rec);
+  }
+
+  const keys = Object.keys(months).sort();
+  
+  // Get PV parameters from DOM (or pass as params in future refactoring)
+  const pvKwp = typeof document !== 'undefined' && document.getElementById('pv-kwp') 
+    ? Number(document.getElementById('pv-kwp').value) || 0 
+    : 0;
+  const pvRegion = typeof document !== 'undefined' && document.getElementById('pv-region')
+    ? (document.getElementById('pv-region').value || 'centre')
+    : 'centre';
+  const standbyW = typeof document !== 'undefined' && document.getElementById('pv-standby')
+    ? Number(document.getElementById('pv-standby').value) || 0
+    : 0;
+    
+  const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
+  const exportPrice = Number(tariffs.injectionPrice) || 0.06;
+
+  const results = [];
+  for (const key of keys) {
+    const recs = months[key];
+    const totalKwh = recs.reduce((sum, r) => sum + (Number(r.valeur) || 0), 0);
+    const parts = key.split('-');
+    const monthIdx = parts.length > 1 ? Number(parts[1]) - 1 : 0;
+    const monthPV = annualProduction * (tariffs.monthlySolarWeights[monthIdx] || 1 / 12);
+
+    const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW, tariffs.monthlySolarWeights);
+    const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
+    const monthSelf = estimatedMonthSelf;
+
+    const baseEnergy = computeCostBase(recs, tariffs).cost;
+    const subBase = Number(tariffs.subBase) || 0;
+    const baseTotal = baseEnergy + subBase;
+
+    const hphcEnergyObj = computeCostHpHc(recs, tariffs.hp, tariffs.hp.hcRange);
+    const subHphc = Number(tariffs.hp.sub) || 0;
+    const hphcTotal = hphcEnergyObj.cost + subHphc;
+
+    const tempoEnergyObj = computeCostTempo(recs, tempoDayMap, tariffs.tempo);
+    const subTempo = Number(tariffs.tempo.sub) || 0;
+    const tempoTotal = tempoEnergyObj.cost + subTempo;
+
+    const tempoOptEnergyObj = computeCostTempoOptimized(recs, tempoDayMap, tariffs.tempo);
+    const tempoOptTotal = tempoOptEnergyObj.cost + subTempo;
+
+    const tchEnergyObj = computeCostTotalCharge(recs, tariffs.totalChargeHeures);
+    const subTch = Number((tariffs.totalChargeHeures || {}).sub) || 0;
+    const tchTotal = tchEnergyObj.cost + subTch;
+
+    const recsWithPV = applyPvReduction(recs, monthSelf);
+    const baseEnergyPV = computeCostBase(recsWithPV, tariffs).cost;
+    const baseTotalPV = baseEnergyPV + subBase - (monthPV - monthSelf) * exportPrice;
+
+    const hphcEnergyObjPV = computeCostHpHc(recsWithPV, tariffs.hp, tariffs.hp.hcRange);
+    const hphcTotalPV = hphcEnergyObjPV.cost + subHphc - (monthPV - monthSelf) * exportPrice;
+
+    const tempoEnergyObjPV = computeCostTempo(recsWithPV, tempoDayMap, tariffs.tempo);
+    const tempoTotalPV = tempoEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
+
+    const tempoOptEnergyObjPV = computeCostTempoOptimized(recsWithPV, tempoDayMap, tariffs.tempo);
+    const tempoOptTotalPV = tempoOptEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
+
+    const tchEnergyObjPV = computeCostTotalCharge(recsWithPV, tariffs.totalChargeHeures);
+    const tchTotalPV = tchEnergyObjPV.cost + subTch - (monthPV - monthSelf) * exportPrice;
+
+    results.push({
+      month: key,
+      consumption: totalKwh,
+      monthPV,
+      monthSelf,
+      base: { energy: baseEnergy, total: baseTotal },
+      basePV: { energy: baseEnergyPV, total: baseTotalPV },
+      hphc: { energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcTotal },
+      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcTotalPV },
+      tempo: { energy: tempoEnergyObj.cost || 0, total: tempoTotal },
+      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: tempoTotalPV },
+      tempoOpt: { energy: tempoOptEnergyObj.cost || 0, total: tempoOptTotal },
+      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: tempoOptTotalPV },
+      tch: { energy: tchEnergyObj.cost || 0, hp: tchEnergyObj.hp || 0, hc: tchEnergyObj.hc || 0, hsc: tchEnergyObj.hsc || 0, total: tchTotal },
+      tchPV: { energy: tchEnergyObjPV.cost || 0, total: tchTotalPV }
+    });
+  }
+
+  return results;
 }

@@ -1,4 +1,4 @@
-import { formatNumber, fmt, isoDateRange, isHourHC } from './utils.js';
+import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr } from './utils.js';
 import { appState } from './state.js';
 import {
   computeCostBase,
@@ -19,6 +19,13 @@ import {
 import * as chartRenderer from './chartRenderer.js';
 import { parseMultipleFiles, deduplicateRecords, sortRecordsByDate } from './fileHandler.js';
 import { initializeUIListeners } from './uiManager.js';
+import {
+  computeHourlyStats,
+  computeCostWithProfile,
+  calculateStandbyFromRecords,
+  computeDailyTempoCostMap,
+  computeMonthlyBreakdown
+} from './analysisEngine.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -351,38 +358,8 @@ export async function getRecordsFromCache(fileList) {
   return records;
 }
 
-function computeHourlyStats(records) {
-  const hours = Array.from({ length: 24 }, () => []);
-  let total = 0;
-  for (const rec of records) {
-    const val = Number(rec.valeur);
-    if (Number.isNaN(val)) continue;
-    total += val;
-    const dt = new Date(rec.dateDebut);
-    if (Number.isNaN(dt.getTime())) continue;
-    hours[dt.getHours()].push(val);
-  }
-  const avg = [];
-  const min = [];
-  const max = [];
-  const count = [];
-  for (let h = 0; h < 24; h += 1) {
-    const arr = hours[h];
-    if (!arr.length) {
-      avg.push(0);
-      min.push(0);
-      max.push(0);
-      count.push(0);
-    } else {
-      const sum = arr.reduce((a, b) => a + b, 0);
-      avg.push(sum / arr.length);
-      min.push(Math.min(...arr));
-      max.push(Math.max(...arr));
-      count.push(arr.length);
-    }
-  }
-  return { total, avg, min, max, count };
-}
+// Imported from analysisEngine.js
+// computeHourlyStats() is now imported
 
 function renderHourlyChart(stats) {
   chartRenderer.renderHourlyChart(stats, hourlyCanvas);
@@ -460,130 +437,7 @@ export async function analyzeFilesNow(records) {
   }
 }
 
-function computeCostWithProfile(perHourAnnual, priceBase, hpParams) {
-  let cost = 0;
-  let hpCost = 0;
-  let hcCost = 0;
-  if (hpParams.mode === 'base') {
-    for (let h = 0; h < 24; h += 1) cost += perHourAnnual[h] * priceBase;
-    return { cost, hpCost: 0, hcCost: 0 };
-  }
-  if (hpParams.mode === 'tch') {
-    let hscCost = 0;
-    for (let h = 0; h < 24; h += 1) {
-      const qty = perHourAnnual[h] || 0;
-      if (hpParams.hscRange && isHourHC(h, hpParams.hscRange)) {
-        hscCost += qty * hpParams.phsc;
-      } else if (isHourHC(h, hpParams.hcRange)) {
-        hcCost += qty * hpParams.phc;
-      } else {
-        hpCost += qty * hpParams.php;
-      }
-    }
-    cost = hpCost + hcCost + hscCost;
-    return { cost, hpCost, hcCost, hscCost };
-  }
-
-  for (let h = 0; h < 24; h += 1) {
-    const qty = perHourAnnual[h] || 0;
-    if (isHourHC(h, hpParams.hcRange)) {
-      hcCost += qty * hpParams.phc;
-    } else {
-      hpCost += qty * hpParams.php;
-    }
-  }
-  cost = hpCost + hcCost;
-  return { cost, hpCost, hcCost };
-}
-
-function monthKeyFromDateStr(dateStr) {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return (dateStr || '').slice(0, 7);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
-}
-
-function computeMonthlyBreakdown(records) {
-  const months = {};
-  for (const rec of records) {
-    const key = monthKeyFromDateStr(rec.dateDebut);
-    if (!months[key]) months[key] = [];
-    months[key].push(rec);
-  }
-
-  const keys = Object.keys(months).sort();
-  const annualProduction = (Number(document.getElementById('pv-kwp').value) || 0) * pvYieldPerKwp((document.getElementById('pv-region') || {}).value || 'centre');
-  const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
-
-  const results = [];
-  for (const key of keys) {
-    const recs = months[key];
-    const totalKwh = recs.reduce((sum, r) => sum + (Number(r.valeur) || 0), 0);
-    const parts = key.split('-');
-    const monthIdx = parts.length > 1 ? Number(parts[1]) - 1 : 0;
-    const monthPV = annualProduction * (DEFAULTS.monthlySolarWeights[monthIdx] || 1 / 12);
-
-    const standbyW = Number((document.getElementById('pv-standby') || {}).value) || 0;
-    const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW, DEFAULTS.monthlySolarWeights);
-    const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
-    const monthSelf = estimatedMonthSelf;
-
-    const baseEnergy = computeCostBase(recs, DEFAULTS).cost;
-    const subBase = Number(DEFAULTS.subBase) || 0;
-    const baseTotal = baseEnergy + subBase;
-
-    const hphcEnergyObj = computeCostHpHc(recs, DEFAULTS.hp, DEFAULTS.hp.hcRange);
-    const subHphc = Number(DEFAULTS.hp.sub) || 0;
-    const hphcTotal = hphcEnergyObj.cost + subHphc;
-
-    const tempoEnergyObj = computeCostTempo(recs, appState.tempoDayMap, DEFAULTS.tempo);
-    const subTempo = Number(DEFAULTS.tempo.sub) || 0;
-    const tempoTotal = tempoEnergyObj.cost + subTempo;
-
-    const tempoOptEnergyObj = computeCostTempoOptimized(recs, appState.tempoDayMap, DEFAULTS.tempo);
-    const tempoOptTotal = tempoOptEnergyObj.cost + subTempo;
-
-    const tchEnergyObj = computeCostTotalCharge(recs, DEFAULTS.totalChargeHeures);
-    const subTch = Number((DEFAULTS.totalChargeHeures || {}).sub) || 0;
-    const tchTotal = tchEnergyObj.cost + subTch;
-
-    const recsWithPV = applyPvReduction(recs, monthSelf);
-    const baseEnergyPV = computeCostBase(recsWithPV, DEFAULTS).cost;
-    const baseTotalPV = baseEnergyPV + subBase - (monthPV - monthSelf) * exportPrice;
-
-    const hphcEnergyObjPV = computeCostHpHc(recsWithPV, DEFAULTS.hp, DEFAULTS.hp.hcRange);
-    const hphcTotalPV = hphcEnergyObjPV.cost + subHphc - (monthPV - monthSelf) * exportPrice;
-
-    const tempoEnergyObjPV = computeCostTempo(recsWithPV, appState.tempoDayMap, DEFAULTS.tempo);
-    const tempoTotalPV = tempoEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
-
-    const tempoOptEnergyObjPV = computeCostTempoOptimized(recsWithPV, appState.tempoDayMap, DEFAULTS.tempo);
-    const tempoOptTotalPV = tempoOptEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
-
-    const tchEnergyObjPV = computeCostTotalCharge(recsWithPV, DEFAULTS.totalChargeHeures);
-    const tchTotalPV = tchEnergyObjPV.cost + subTch - (monthPV - monthSelf) * exportPrice;
-
-    results.push({
-      month: key,
-      consumption: totalKwh,
-      monthPV,
-      monthSelf,
-      base: { energy: baseEnergy, total: baseTotal },
-      basePV: { energy: baseEnergyPV, total: baseTotalPV },
-      hphc: { energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcTotal },
-      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcTotalPV },
-      tempo: { energy: tempoEnergyObj.cost || 0, total: tempoTotal },
-      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: tempoTotalPV },
-      tempoOpt: { energy: tempoOptEnergyObj.cost || 0, total: tempoOptTotal },
-      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: tempoOptTotalPV },
-      tch: { energy: tchEnergyObj.cost || 0, hp: tchEnergyObj.hp || 0, hc: tchEnergyObj.hc || 0, hsc: tchEnergyObj.hsc || 0, total: tchTotal },
-      tchPV: { energy: tchEnergyObjPV.cost || 0, total: tchTotalPV }
-    });
-  }
-
-  return results;
-}
+// computeCostWithProfile, monthKeyFromDateStr, computeMonthlyBreakdown imported from analysisEngine.js
 
 export async function renderMonthlyBreakdown(records) {
   const recs = records || appState.records;
@@ -1486,64 +1340,7 @@ function renderTempoCalendarGraph(dayMap, dailyCostMap) {
   }
 }
 
-function computeDailyTempoCostMap(records, dayMap) {
-  const out = {};
-  const getRates = (entry, colorLetter) => {
-    if (entry && typeof entry === 'object' && entry.rates) {
-      return { hp: Number(entry.rates.hp) || 0, hc: Number(entry.rates.hc) || 0 };
-    }
-    const key = colorLetter === 'R' ? 'red' : colorLetter === 'W' ? 'white' : 'blue';
-    const def = DEFAULTS.tempo && DEFAULTS.tempo[key];
-    if (def && typeof def === 'object') return { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
-    return { hp: Number(def) || 0, hc: Number(def) || 0 };
-  };
-
-  for (const rec of records) {
-    const dt = new Date(rec.dateDebut);
-    const h = dt.getHours();
-    const dateStr = dt.toISOString().slice(0, 10);
-    let bucketDateStr;
-    let colorLetter;
-    let isHC;
-    if (h < 6) {
-      const prev = new Date(dt);
-      prev.setDate(prev.getDate() - 1);
-      bucketDateStr = prev.toISOString().slice(0, 10);
-      const entryPrev = dayMap[bucketDateStr] || 'B';
-      colorLetter = typeof entryPrev === 'string' ? entryPrev.toUpperCase() : ((entryPrev && entryPrev.color) ? String(entryPrev.color).toUpperCase() : 'B');
-      isHC = true;
-    } else if (h >= 22) {
-      bucketDateStr = dateStr;
-      const entryCur = dayMap[bucketDateStr] || 'B';
-      colorLetter = typeof entryCur === 'string' ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
-      isHC = true;
-    } else {
-      bucketDateStr = dateStr;
-      const entryCur = dayMap[bucketDateStr] || 'B';
-      colorLetter = typeof entryCur === 'string' ? entryCur.toUpperCase() : ((entryCur && entryCur.color) ? String(entryCur.color).toUpperCase() : 'B');
-      isHC = false;
-    }
-    const entryForBucket = dayMap[bucketDateStr] || 'B';
-    const rates = getRates(entryForBucket, colorLetter);
-    const applied = isHC ? rates.hc : rates.hp;
-    const v = Number(rec.valeur) || 0;
-    if (!out[bucketDateStr]) {
-      out[bucketDateStr] = { energy: 0, cost: 0, hpCost: 0, hcCost: 0, hpEnergy: 0, hcEnergy: 0, color: colorLetter };
-    }
-    out[bucketDateStr].energy += v;
-    out[bucketDateStr].cost += v * applied;
-    if (isHC) {
-      out[bucketDateStr].hcCost += v * applied;
-      out[bucketDateStr].hcEnergy += v;
-    } else {
-      out[bucketDateStr].hpCost += v * applied;
-      out[bucketDateStr].hpEnergy += v;
-    }
-    out[bucketDateStr].color = colorLetter;
-  }
-
-  return out;
-}
+// computeDailyTempoCostMap now imported from analysisEngine.js
 
 const SETTINGS_KEYS = [
   'pv-kwp',
@@ -1863,25 +1660,7 @@ if (roiSlider && roiDisplay) {
   });
 }
 
-function calculateStandbyFromRecords(records) {
-  const dayRecords = records.filter((rec) => {
-    const h = new Date(rec.dateDebut).getHours();
-    return h >= 10 && h < 16;
-  });
-  if (!dayRecords.length) throw new Error('Pas de données de jour');
-  const powers = dayRecords
-    .map((rec) => {
-      const durationMs = new Date(rec.dateFin) - new Date(rec.dateDebut);
-      const durationHours = durationMs / (1000 * 60 * 60);
-      if (durationHours <= 0) return 0;
-      const kw = Number(rec.valeur) / durationHours;
-      return kw * 1000;
-    })
-    .filter((p) => p > 0)
-    .sort((a, b) => a - b);
-  const idx = Math.floor(powers.length * 0.35);
-  return Math.round(powers[idx]);
-}
+// calculateStandbyFromRecords now imported from analysisEngine.js
 
 const btnEstimateStandby = document.getElementById('btn-estimate-standby');
 if (btnEstimateStandby) {

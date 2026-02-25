@@ -49,3 +49,16 @@ export function isHourHC(hour, rangeStr) {
 
   return false;
 }
+
+/**
+ * Extract month key from date string (YYYY-MM)
+ * @param {string} dateStr - ISO date string
+ * @returns {string} Month key (YYYY-MM)
+ */
+export function monthKeyFromDateStr(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return (dateStr || '').slice(0, 7);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
