@@ -128,3 +128,122 @@ export function loadSetting(id) {
     // ignore
   }
 }
+
+// Note: These functions use the global DEFAULTS object defined in app.js
+// They are designed to work with DOM elements and the global application state
+
+/**
+ * Apply subscription input values to global DEFAULTS configuration
+ * Reads from DOM and updates DEFAULTS.subBase, DEFAULTS.hp.sub, DEFAULTS.tempo.sub
+ * @returns {boolean} Whether any values changed
+ */
+export function applySubscriptionInputs() {
+  // Note: DEFAULTS must be available in the caller's scope
+  const sb = document.getElementById('param-sub-base');
+  const sh = document.getElementById('param-sub-hphc');
+  const st = document.getElementById('param-sub-tempo');
+  
+  if (!window.DEFAULTS) return false;
+  const DEFAULTS = window.DEFAULTS;
+  let changed = false;
+
+  if (sb && sb.value) {
+    const v = Number(sb.value);
+    if (!Number.isNaN(v) && v >= 0 && DEFAULTS.subBase !== v) {
+      DEFAULTS.subBase = v;
+      changed = true;
+    }
+  }
+  if (sh && sh.value) {
+    const v = Number(sh.value);
+    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.hp || {}).sub !== v) {
+      if (!DEFAULTS.hp) DEFAULTS.hp = {};
+      DEFAULTS.hp.sub = v;
+      changed = true;
+    }
+  }
+  if (st && st.value) {
+    const v = Number(st.value);
+    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.tempo || {}).sub !== v) {
+      if (!DEFAULTS.tempo) DEFAULTS.tempo = {};
+      DEFAULTS.tempo.sub = v;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Apply HC range input value to global DEFAULTS configuration
+ * Reads from DOM and updates DEFAULTS.hp.hcRange
+ * @returns {boolean} Whether the value changed
+ */
+export function applyHcRangeInput() {
+  const el = document.getElementById('param-hphc-hcRange');
+  if (!el) return false;
+
+  if (!window.DEFAULTS) return false;
+  const DEFAULTS = window.DEFAULTS;
+
+  const norm = normalizeHcRange(el.value);
+  if (!norm) return false;
+
+  if (!DEFAULTS.hp) DEFAULTS.hp = {};
+  const before = DEFAULTS.hp.hcRange;
+  DEFAULTS.hp.hcRange = norm;
+  el.value = norm;
+
+  return before !== norm;
+}
+
+/**
+ * Apply Total Charge Heures input values to global DEFAULTS configuration
+ * Reads from DOM and updates DEFAULTS.totalChargeHeures
+ * @returns {boolean} Whether any values changed
+ */
+export function applyTotalChargeHeuresInputs() {
+  const hpr = document.getElementById('param-tch-hpRange');
+  const hcr = document.getElementById('param-tch-hcRange');
+  const hsr = document.getElementById('param-tch-hscRange');
+  const sub = document.getElementById('param-sub-tch');
+  
+  if (!window.DEFAULTS) return false;
+  const DEFAULTS = window.DEFAULTS;
+  let changed = false;
+
+  if (hpr && hpr.value) {
+    const v = normalizeHcRange(hpr.value);
+    if (v && (DEFAULTS.totalChargeHeures || {}).hpRange !== v) {
+      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
+      DEFAULTS.totalChargeHeures.hpRange = v;
+      changed = true;
+    }
+  }
+  if (hcr && hcr.value) {
+    const v = normalizeHcRange(hcr.value);
+    if (v && (DEFAULTS.totalChargeHeures || {}).hcRange !== v) {
+      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
+      DEFAULTS.totalChargeHeures.hcRange = v;
+      changed = true;
+    }
+  }
+  if (hsr && hsr.value) {
+    const v = normalizeHcRange(hsr.value);
+    if (v && (DEFAULTS.totalChargeHeures || {}).hscRange !== v) {
+      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
+      DEFAULTS.totalChargeHeures.hscRange = v;
+      changed = true;
+    }
+  }
+  if (sub && sub.value) {
+    const v = Number(sub.value);
+    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.totalChargeHeures || {}).sub !== v) {
+      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
+      DEFAULTS.totalChargeHeures.sub = v;
+      changed = true;
+    }
+  }
+
+  return changed;
+}

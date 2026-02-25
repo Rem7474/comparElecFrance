@@ -1,4 +1,4 @@
-import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr, normalizeHcRange, storageKey, saveSetting, loadSetting } from './utils.js';
+import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr, normalizeHcRange, storageKey, saveSetting, loadSetting, applySubscriptionInputs, applyHcRangeInput, applyTotalChargeHeuresInputs } from './utils.js';
 import { appState } from './state.js';
 import {
   computeCostBase,
@@ -8,7 +8,8 @@ import {
   computeCostTempoOptimized,
   applyPvReduction,
   getPriceForPower,
-  SUBSCRIPTION_GRID
+  SUBSCRIPTION_GRID,
+  parallelComputeAllCosts
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 import {
@@ -45,6 +46,14 @@ import {
   calculateInstallCost,
   applyPvToRecords
 } from './calculationEngine.js';
+import {
+  triggerFullRecalculation as workflowTriggerRecalc,
+  setupSubscriptionInputBindings,
+  setupTotalChargeInputBindings,
+  setupHcRangeInputBinding
+} from './workflowEngine.js';
+import { setupPvControls, setupPvToggle } from './pvManager.js';
+import { loadTariffs } from './tariffManager.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -236,7 +245,7 @@ function updateSubscriptionDefault(kva) {
   if (inpTempo) inpTempo.value = tempo.toFixed(2);
 
   appState.setState({ currentKva: safeKva }, 'POWER_UPDATED');
-  populateDefaultsDisplay();
+  populateDefaultsDisplayUI(DEFAULTS);
 }
 
 const kvaSelect = document.getElementById('param-power-kva');
@@ -264,10 +273,6 @@ const analysisLog = document.getElementById('analysis-log');
 const hourlyCanvas = document.getElementById('hourly-chart');
 let hourlyChart = null;
 
-function appendAnalysisLog(msg) {
-  appendLog(analysisLog, msg);
-}
-
 function buildFileCacheKey(fileList) {
   return Array.from(fileList)
     .map((file) => `${file.name}:${file.size}:${file.lastModified}`)
@@ -281,13 +286,13 @@ async function parseFilesToRecords(fileList) {
 
   for (const file of fileList) {
     const name = (file.name || '').toLowerCase();
-    appendAnalysisLog(`Lecture: ${file.name}`);
+    appendLog(analysisLog, `Lecture: ${file.name}`);
     if (name.endsWith('.csv') || (file.type && file.type.toLowerCase().includes('csv'))) {
       csvFiles.push(file);
     } else if (name.endsWith('.json') || file.type.includes('json') || name.endsWith('.txt')) {
       otherFiles.push(file);
     } else {
-      appendAnalysisLog(`${file.name} ignoré (formats supportés: JSON/CSV).`);
+      appendLog(analysisLog, `${file.name} ignoré (formats supportés: JSON/CSV).`);
     }
   }
 
@@ -296,7 +301,7 @@ async function parseFilesToRecords(fileList) {
       const parsed = await parseMultipleFiles(otherFiles);
       records.push(...parsed);
     } catch (err) {
-      appendAnalysisLog(`Erreur lecture fichiers JSON: ${err && err.message ? err.message : err}`);
+      appendLog(analysisLog, `Erreur lecture fichiers JSON: ${err && err.message ? err.message : err}`);
     }
   }
 
@@ -312,18 +317,18 @@ async function parseFilesToRecords(fileList) {
           if (Number.isNaN(val)) continue;
           records.push({ dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val });
         }
-        appendAnalysisLog(`Converti depuis CSV: ${donnees.length} enregistrements`);
+        appendLog(analysisLog, `Converti depuis CSV: ${donnees.length} enregistrements`);
       } else {
-        appendAnalysisLog(`CSV non reconnu: aucune donnée horaire trouvée dans ${file.name}`);
+        appendLog(analysisLog, `CSV non reconnu: aucune donnée horaire trouvée dans ${file.name}`);
       }
     } catch (err) {
-      appendAnalysisLog(`Erreur conversion CSV (${file.name}): ${err && err.message ? err.message : err}`);
+      appendLog(analysisLog, `Erreur conversion CSV (${file.name}): ${err && err.message ? err.message : err}`);
     }
   }
 
   const dedup = deduplicateRecords(records);
   const sorted = sortRecordsByDate(dedup);
-  appendAnalysisLog(`Total enregistrements valides: ${sorted.length}`);
+  appendLog(analysisLog, `Total enregistrements valides: ${sorted.length}`);
   return sorted;
 }
 
@@ -360,9 +365,9 @@ export async function analyzeFilesNow(records) {
   const dashboard = document.getElementById('dashboard-section');
   if (dashboard) dashboard.classList.remove('hidden');
 
-  appendAnalysisLog('Démarrage de l\'analyse...');
+  appendLog(analysisLog, 'Démarrage de l\'analyse...');
   if (!records || records.length === 0) {
-    appendAnalysisLog('Aucune donnée valide trouvée pour l\'analyse.');
+    appendLog(analysisLog, 'Aucune donnée valide trouvée pour l\'analyse.');
     return;
   }
 
@@ -403,7 +408,7 @@ export async function analyzeFilesNow(records) {
     // ignore
   }
 
-  appendAnalysisLog('Analyse terminée.');
+  appendLog(analysisLog, 'Analyse terminée.');
   try {
     const tempoMap = await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
       if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
@@ -429,7 +434,7 @@ export async function renderMonthlyBreakdown(records) {
     return;
   }
 
-  appendAnalysisLog('Calcul ventilation mensuelle...');
+  appendLog(analysisLog, 'Calcul ventilation mensuelle...');
   
   // Prepare parameters for computeMonthlyBreakdown
   const pvKwp = Number(document.getElementById('pv-kwp')?.value) || 0;
@@ -633,7 +638,7 @@ export async function renderMonthlyBreakdown(records) {
   } catch (err) {
     console.warn('Erreur rendu graphique économies PV mensuelles', err);
   }
-  appendAnalysisLog('Ventilation mensuelle terminée.');
+  appendLog(analysisLog, 'Ventilation mensuelle terminée.');
 }
 
 export async function runPvSimulation(records) {
@@ -646,7 +651,7 @@ export async function runPvSimulation(records) {
   const isPvEnabled = document.getElementById('toggle-pv') ? document.getElementById('toggle-pv').checked : true;
   if (!isPvEnabled) return;
 
-  appendAnalysisLog('Estimation PV en cours...');
+  appendLog(analysisLog, 'Estimation PV en cours...');
   const pvKwp = Number((document.getElementById('pv-kwp') || {}).value) || 0;
   const region = (document.getElementById('pv-region') || {}).value || 'centre';
   const standbyW = Number((document.getElementById('pv-standby') || {}).value) || 0;
@@ -715,7 +720,7 @@ if (btnExportReport) {
       alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
       return;
     }
-    appendAnalysisLog('Génération du rapport...');
+    appendLog(analysisLog, 'Génération du rapport...');
     const records = await getRecordsFromCache(files);
     const stats = computeHourlyStats(records);
     const report = {
@@ -731,7 +736,7 @@ if (btnExportReport) {
     a.click();
     URL.revokeObjectURL(a.href);
     a.remove();
-    appendAnalysisLog('Rapport téléchargé.');
+    appendLog(analysisLog, 'Rapport téléchargé.');
   });
 }
 
@@ -743,7 +748,7 @@ export async function compareOffers(records) {
   }
 
   const grid = document.getElementById('offers-results-grid');
-  appendAnalysisLog('Comparaison des offres en cours...');
+  appendLog(analysisLog, 'Comparaison des offres en cours...');
 
   const isPvEnabled = document.getElementById('toggle-pv') ? document.getElementById('toggle-pv').checked : true;
   const annualProduction = isPvEnabled
@@ -1013,7 +1018,7 @@ export async function compareOffers(records) {
     chartRenderer.renderOffersChart(offers, isPvEnabled, offersCanvas);
   }
 
-  appendAnalysisLog('Comparaison terminée.');
+  appendLog(analysisLog, 'Comparaison terminée.');
 
   const pvReportSec = document.getElementById('pv-report-section');
   const pvReportContent = document.getElementById('pv-report-content');
@@ -1074,7 +1079,7 @@ export async function compareOffers(records) {
         pvReportContent.appendChild(createReportCard('Option Tempo (Optimisé)', bestConfig.tempoOpt));
       } catch (err) {
         console.warn('Erreur affichage rapport PV:', err);
-        appendAnalysisLog('Erreur lors du calcul de rentabilité PV. Vérifiez vos paramètres.');
+        appendLog(analysisLog, 'Erreur lors du calcul de rentabilité PV. Vérifiez vos paramètres.');
       }
     } else {
       pvReportSec.classList.add('hidden');
@@ -1155,7 +1160,6 @@ export async function compareOffers(records) {
 }
 
 // Tempo functions (tempoStorageKey, ensureTempoDayMap, mapColorToHex, getRepresentativePriceForEntry, createTooltip, renderTempoCalendarGraph) now imported from tempoCalendar.js
-// computeDailyTempoCostMap now imported from analysisEngine.js
 
 const SETTINGS_KEYS = [
   'pv-kwp',
@@ -1183,438 +1187,57 @@ for (const key of SETTINGS_KEYS) {
   el.addEventListener('input', () => saveSetting(key));
 }
 
-// normalizeHcRange now imported from utils.js
-
-function applyHcRangeFromInput() {
-  const el = document.getElementById('param-hphc-hcRange');
-  if (!el) return;
-  const norm = normalizeHcRange(el.value);
-  if (!norm) return;
-  if (!DEFAULTS.hp) DEFAULTS.hp = {};
-  DEFAULTS.hp.hcRange = norm;
-  el.value = norm;
-  populateDefaultsDisplay();
-}
-
+// Initialize DOM values from DEFAULTS
 try {
-  applyHcRangeFromInput();
+  const sb = document.getElementById('param-sub-base');
+  if (sb && !sb.value) sb.value = String(DEFAULTS.subBase || '');
+  const sh = document.getElementById('param-sub-hphc');
+  if (sh && !sh.value) sh.value = String((DEFAULTS.hp || {}).sub || '');
+  const st = document.getElementById('param-sub-tempo');
+  if (st && !st.value) st.value = String((DEFAULTS.tempo || {}).sub || '');
+  const hpr = document.getElementById('param-tch-hpRange');
+  if (hpr && !hpr.value) hpr.value = String((DEFAULTS.totalChargeHeures || {}).hpRange || '');
+  const hcr = document.getElementById('param-tch-hcRange');
+  if (hcr && !hcr.value) hcr.value = String((DEFAULTS.totalChargeHeures || {}).hcRange || '');
+  const hsr = document.getElementById('param-tch-hscRange');
+  if (hsr && !hsr.value) hsr.value = String((DEFAULTS.totalChargeHeures || {}).hscRange || '');
+  const stch = document.getElementById('param-sub-tch');
+  if (stch && !stch.value) stch.value = String((DEFAULTS.totalChargeHeures || {}).sub || '');
 } catch (err) {
   // ignore
 }
 
-(function bindHcRange() {
-  const el = document.getElementById('param-hphc-hcRange');
-  if (!el) return;
-  el.addEventListener('change', async () => {
-    const before = DEFAULTS.hp && DEFAULTS.hp.hcRange;
-    applyHcRangeFromInput();
-    const after = DEFAULTS.hp && DEFAULTS.hp.hcRange;
-    if (before === after) return;
-    try {
-      const records = appState.records;
-      if (records && records.length) {
-        try {
-          renderHpHcPie(records);
-        } catch (err) {
-          // ignore
-        }
-        await triggerFullRecalculation();
-      }
-    } catch (err) {
-      console.warn('Recalc after HC range change failed', err);
-    }
-  });
-})();
+// Setup input bindings via workflowEngine
+setupSubscriptionInputBindings(DEFAULTS, applySubscriptionInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
+setupTotalChargeInputBindings(DEFAULTS, applyTotalChargeHeuresInputs, populateDefaultsDisplayUI, triggerFullRecalculation);
+setupHcRangeInputBinding(DEFAULTS, applyHcRangeInput, populateDefaultsDisplayUI, triggerFullRecalculation);
 
-function applySubscriptionInputs() {
-  const sb = document.getElementById('param-sub-base');
-  const sh = document.getElementById('param-sub-hphc');
-  const st = document.getElementById('param-sub-tempo');
-  let changed = false;
-  if (sb && sb.value) {
-    const v = Number(sb.value);
-    if (!Number.isNaN(v) && v >= 0 && DEFAULTS.subBase !== v) {
-      DEFAULTS.subBase = v;
-      changed = true;
-    }
-  }
-  if (sh && sh.value) {
-    const v = Number(sh.value);
-    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.hp || {}).sub !== v) {
-      if (!DEFAULTS.hp) DEFAULTS.hp = {};
-      DEFAULTS.hp.sub = v;
-      changed = true;
-    }
-  }
-  if (st && st.value) {
-    const v = Number(st.value);
-    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.tempo || {}).sub !== v) {
-      if (!DEFAULTS.tempo) DEFAULTS.tempo = {};
-      DEFAULTS.tempo.sub = v;
-      changed = true;
-    }
-  }
-  if (changed) populateDefaultsDisplay();
-  return changed;
-}
+populateDefaultsDisplayUI(DEFAULTS);
 
-(function initSubscriptionInputs() {
-  try {
-    const sb = document.getElementById('param-sub-base');
-    if (sb && !sb.value) sb.value = String(DEFAULTS.subBase || '');
-    const sh = document.getElementById('param-sub-hphc');
-    if (sh && !sh.value) sh.value = String((DEFAULTS.hp || {}).sub || '');
-    const st = document.getElementById('param-sub-tempo');
-    if (st && !st.value) st.value = String((DEFAULTS.tempo || {}).sub || '');
-    const hpr = document.getElementById('param-tch-hpRange');
-    if (hpr && !hpr.value) hpr.value = String((DEFAULTS.totalChargeHeures || {}).hpRange || '');
-    const hcr = document.getElementById('param-tch-hcRange');
-    if (hcr && !hcr.value) hcr.value = String((DEFAULTS.totalChargeHeures || {}).hcRange || '');
-    const hsr = document.getElementById('param-tch-hscRange');
-    if (hsr && !hsr.value) hsr.value = String((DEFAULTS.totalChargeHeures || {}).hscRange || '');
-    const stch = document.getElementById('param-sub-tch');
-    if (stch && !stch.value) stch.value = String((DEFAULTS.totalChargeHeures || {}).sub || '');
-  } catch (err) {
-    // ignore
-  }
-})();
-
-function applyTotalChargeHeuresInputs() {
-  const hpr = document.getElementById('param-tch-hpRange');
-  const hcr = document.getElementById('param-tch-hcRange');
-  const hsr = document.getElementById('param-tch-hscRange');
-  const sub = document.getElementById('param-sub-tch');
-  let changed = false;
-  if (hpr && hpr.value) {
-    const v = normalizeHcRange(hpr.value);
-    if (v && (DEFAULTS.totalChargeHeures || {}).hpRange !== v) {
-      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
-      DEFAULTS.totalChargeHeures.hpRange = v;
-      changed = true;
-    }
-  }
-  if (hcr && hcr.value) {
-    const v = normalizeHcRange(hcr.value);
-    if (v && (DEFAULTS.totalChargeHeures || {}).hcRange !== v) {
-      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
-      DEFAULTS.totalChargeHeures.hcRange = v;
-      changed = true;
-    }
-  }
-  if (hsr && hsr.value) {
-    const v = normalizeHcRange(hsr.value);
-    if (v && (DEFAULTS.totalChargeHeures || {}).hscRange !== v) {
-      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
-      DEFAULTS.totalChargeHeures.hscRange = v;
-      changed = true;
-    }
-  }
-  if (sub && sub.value) {
-    const v = Number(sub.value);
-    if (!Number.isNaN(v) && v >= 0 && (DEFAULTS.totalChargeHeures || {}).sub !== v) {
-      if (!DEFAULTS.totalChargeHeures) DEFAULTS.totalChargeHeures = {};
-      DEFAULTS.totalChargeHeures.sub = v;
-      changed = true;
-    }
-  }
-  if (changed) populateDefaultsDisplay();
-  return changed;
-}
-
-(function bindSubscriptionInputs() {
-  ['param-sub-base', 'param-sub-hphc', 'param-sub-tempo'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('change', async () => {
-      saveSetting(id);
-      const changed = applySubscriptionInputs();
-      if (!changed) return;
-      await triggerFullRecalculation();
-    });
-  });
-})();
-
-(function bindTotalChargeInputs() {
-  ['param-tch-hpRange', 'param-tch-hcRange', 'param-tch-hscRange', 'param-sub-tch'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('change', async () => {
-      saveSetting(id);
-      const changed = applyTotalChargeHeuresInputs();
-      if (!changed) return;
-      await triggerFullRecalculation();
-    });
-  });
-})();
-
-// populateDefaultsDisplay and updateInjectionDisplay now in uiManager.js
-function populateDefaultsDisplay() {
-  populateDefaultsDisplayUI(DEFAULTS);
-}
-
-function updateInjectionDisplay() {
-  updateInjectionDisplayUI(DEFAULTS);
-}
-
-populateDefaultsDisplay();
-
-async function triggerFullRecalculation() {
-  const files = fileInput && fileInput.files;
-  if (!files || files.length === 0) return;
-  const records = await getRecordsFromCache(files);
-  if (!records || records.length === 0) return;
-  await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
-    if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
-    if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
-  });
-  await compareOffers(records);
-  await renderMonthlyBreakdown(records);
-  await runPvSimulation(records);
-}
+// OPTIMIZATION: Use workflow engine for coordinated recalculation
+const triggerFullRecalculation = () => workflowTriggerRecalc(
+  fileInput,
+  getRecordsFromCache,
+  invalidateCache,
+  ensureTempoDayMap,
+  compareOffers,
+  renderMonthlyBreakdown,
+  runPvSimulation,
+  DEFAULTS,
+  tempoLoading,
+  appendAnalysisLog
+);
 
 // File input listener is now managed by uiManager.js
 
-const btnCalcPv = document.getElementById('btn-calc-pv');
-if (btnCalcPv) {
-  btnCalcPv.addEventListener('click', async () => {
-    await triggerFullRecalculation();
-  });
-}
+// Setup PV and offer comparison controls
+setupPvControls(DEFAULTS, triggerFullRecalculation, calculateStandbyFromRecords);
 
-const btnCompareOffers = document.getElementById('btn-compare-offers');
-if (btnCompareOffers) {
-  btnCompareOffers.addEventListener('click', async () => {
-    await triggerFullRecalculation();
-  });
-}
+// Setup PV visibility toggle
+setupPvToggle(triggerFullRecalculation);
 
-const pvInputs = ['pv-kwp', 'pv-region', 'pv-standby', 'pv-cost-base', 'pv-cost-panel'];
-for (const id of pvInputs) {
-  const el = document.getElementById(id);
-  if (!el) continue;
-  el.addEventListener('change', async () => {
-    await triggerFullRecalculation();
-  });
-}
-
-const roiSlider = document.getElementById('pv-roi-years');
-const roiDisplay = document.getElementById('pv-roi-display');
-if (roiSlider && roiDisplay) {
-  roiSlider.addEventListener('input', (event) => {
-    roiDisplay.textContent = `${event.target.value} ans`;
-  });
-  roiSlider.addEventListener('change', async () => {
-    await triggerFullRecalculation();
-  });
-}
-
-// calculateStandbyFromRecords now imported from analysisEngine.js
-
-const btnEstimateStandby = document.getElementById('btn-estimate-standby');
-if (btnEstimateStandby) {
-  btnEstimateStandby.addEventListener('click', async () => {
-    const records = appState.records;
-    if (!records || records.length === 0) {
-      alert('Veuillez d\'abord charger un fichier de consommation.');
-      return;
-    }
-
-    const originalText = btnEstimateStandby.textContent;
-    btnEstimateStandby.textContent = '...';
-
-    try {
-      const estimatedW = calculateStandbyFromRecords(records);
-      const input = document.getElementById('pv-standby');
-      if (input) {
-        input.value = estimatedW;
-        input.dispatchEvent(new Event('change'));
-      }
-      btnEstimateStandby.textContent = `✅ ${estimatedW}W`;
-      setTimeout(() => {
-        btnEstimateStandby.textContent = originalText;
-      }, 2000);
-    } catch (err) {
-      console.warn('Estimation talon échouée', err);
-      alert(`Impossible d\'estimer le talon : ${err.message}`);
-      btnEstimateStandby.textContent = originalText;
-    }
-  });
-}
-
-window.calculateStandbyFromRecords = calculateStandbyFromRecords;
-
-// PV toggle is now managed by uiManager.js
-const togglePv = document.getElementById('toggle-pv');
-const pvSettingsContainer = document.getElementById('pv-settings-container');
-const metricPv = document.getElementById('metric-pv');
-
-function updatePVVisibility() {
-  const isEnabled = togglePv ? togglePv.checked : true;
-  if (pvSettingsContainer) pvSettingsContainer.style.display = isEnabled ? 'block' : 'none';
-  if (metricPv) metricPv.style.display = isEnabled ? 'flex' : 'none';
-  if (btnCalcPv) btnCalcPv.style.display = isEnabled ? '' : 'none';
-
-  const dashboard = document.getElementById('dashboard-section');
-  if (dashboard && !dashboard.classList.contains('hidden')) {
-    triggerFullRecalculation();
-  }
-}
-
-// Initialize visibility on load
-if (togglePv) {
-  updatePVVisibility();
-}
-
-function showTariffErrorBanner(message) {
-  const container = document.getElementById('tariff-errors');
-  if (!container) return;
-  container.classList.remove('hidden');
-  const item = document.createElement('div');
-  item.className = 'alert alert-warning';
-  item.textContent = message;
-  container.appendChild(item);
-}
-
-function mergeTariffs(target, source) {
-  if (!source || typeof source !== 'object') return target;
-  for (const [key, value] of Object.entries(source)) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      if (!target[key] || typeof target[key] !== 'object') target[key] = {};
-      mergeTariffs(target[key], value);
-    } else {
-      target[key] = value;
-    }
-  }
-  return target;
-}
-
-// Map common tariff JSON file shapes into the DEFAULTS structure
-function mapTariffToDefaults(tariffJson) {
-  if (!tariffJson || typeof tariffJson !== 'object') return false;
-  const id = tariffJson.id || tariffJson.name || null;
-  try {
-    if (id === 'base' || tariffJson.type === 'flat') {
-      if (tariffJson.price != null) DEFAULTS.priceBase = tariffJson.price;
-      if (tariffJson.subscriptions) DEFAULTS.subBase = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.subBase;
-      return true;
-    }
-    if (id === 'hphc' || tariffJson.type === 'two-tier') {
-      if (tariffJson.php != null) DEFAULTS.hp.php = tariffJson.php;
-      if (tariffJson.phc != null) DEFAULTS.hp.phc = tariffJson.phc;
-      if (tariffJson.hcRange) DEFAULTS.hp.hcRange = tariffJson.hcRange;
-      if (tariffJson.subscriptions) DEFAULTS.hp.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.hp.sub;
-      return true;
-    }
-    if (id === 'tempo' || tariffJson.type === 'tempo') {
-      if (tariffJson.blue) DEFAULTS.tempo.blue = tariffJson.blue;
-      if (tariffJson.white) DEFAULTS.tempo.white = tariffJson.white;
-      if (tariffJson.red) DEFAULTS.tempo.red = tariffJson.red;
-      if (tariffJson.hcRange) DEFAULTS.tempo.hcRange = tariffJson.hcRange;
-      if (tariffJson.approxPct) DEFAULTS.tempo.approxPct = tariffJson.approxPct;
-      if (tariffJson.subscriptions) DEFAULTS.tempo.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.tempo.sub;
-      return true;
-    }
-    if (id === 'totalCharge' || tariffJson.type === 'three-tier') {
-      if (tariffJson.php != null) DEFAULTS.totalChargeHeures.php = tariffJson.php;
-      if (tariffJson.phc != null) DEFAULTS.totalChargeHeures.phc = tariffJson.phc;
-      if (tariffJson.phsc != null) DEFAULTS.totalChargeHeures.phsc = tariffJson.phsc;
-      if (tariffJson.hpRange) DEFAULTS.totalChargeHeures.hpRange = tariffJson.hpRange;
-      if (tariffJson.hcRange) DEFAULTS.totalChargeHeures.hcRange = tariffJson.hcRange;
-      if (tariffJson.hscRange) DEFAULTS.totalChargeHeures.hscRange = tariffJson.hscRange;
-      if (tariffJson.subscriptions) DEFAULTS.totalChargeHeures.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.totalChargeHeures.sub;
-      return true;
-    }
-    if (id === 'injection' || tariffJson.injectionPrice != null) {
-      if (tariffJson.injectionPrice != null) DEFAULTS.injectionPrice = tariffJson.injectionPrice;
-      return true;
-    }
-  } catch (e) {
-    // ignore mapping errors and fallback to generic merge
-  }
-  return false;
-}
-
-async function loadTariffs() {
-  // Discover tariff files dynamically from the tariffs folder when possible.
-  async function discoverTariffFiles() {
-    // 1) Prefer an explicit index file if present
-    try {
-      const idxResp = await fetch('tariffs/index.json', { cache: 'no-cache' });
-      if (idxResp.ok) {
-        const idx = await idxResp.json();
-        let list = null;
-        if (Array.isArray(idx)) list = idx.map((n) => (n.startsWith('tariffs/') ? n : `tariffs/${n}`));
-        else if (typeof idx === 'object' && idx.files && Array.isArray(idx.files)) list = idx.files.map((n) => (n.startsWith('tariffs/') ? n : `tariffs/${n}`));
-        if (list && list.length) {
-          try {
-            appendAnalysisLog && appendAnalysisLog(`tariffs/index.json trouvé — chargement de ${list.length} fichiers tarifaires`);
-          } catch (e) {
-            // ignore logging errors
-          }
-          return list;
-        }
-      }
-    } catch (err) {
-      // fallthrough
-    }
-
-    // 2) Try to fetch directory listing HTML (works on simple static servers)
-    try {
-      const resp = await fetch('tariffs/', { cache: 'no-cache' });
-      if (resp.ok) {
-        const txt = await resp.text();
-        const regex = /href=["']([^"']+\.json)["']/gi;
-        const found = new Set();
-        let m;
-        while ((m = regex.exec(txt))) {
-          let p = m[1];
-          if (!p.startsWith('tariffs/')) p = `tariffs/${p}`;
-          found.add(p);
-        }
-        if (found.size) return Array.from(found);
-      }
-    } catch (err) {
-      // ignore
-    }
-
-    // 3) Fallback to conservative builtin list
-    return ['tariffs/base.json', 'tariffs/hphc.json', 'tariffs/tempo.json', 'tariffs/total-charge-heures.json', 'tariffs/injection.json'];
-  }
-
-  const files = await discoverTariffFiles();
-  for (const name of files) {
-    try {
-      const resp = await fetch(name, { cache: 'no-cache' });
-      if (!resp.ok) {
-        showTariffErrorBanner(`Tarif introuvable: ${name} — valeurs par défaut utilisées.`);
-        console.error('Tariff fetch failed', name, resp.status);
-        continue;
-      }
-      const json = await resp.json();
-      // Try mapping known tariff file formats into DEFAULTS first
-      const mapped = mapTariffToDefaults(json);
-      if (!mapped) mergeTariffs(DEFAULTS, json);
-    } catch (err) {
-      showTariffErrorBanner(`Erreur de chargement du tarif ${name} — valeurs par défaut utilisées.`);
-      console.error('Tariff parse failed', name, err);
-    }
-  }
-  appState.setState({ tariffs: DEFAULTS }, 'TARIFFS_LOADED');
-  populateDefaultsDisplay();
-}
-
-loadTariffs();
-
-/**
- * Wrapper function for ensureTempoDayMap to provide all dependencies
- * This makes it easier to use from uiManager without passing all parameters
- */
-async function ensureTempoDayMapWrapper(records) {
-  return await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
-    if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
-    if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
-  });
-}
+// Load tariff files from tariffs/ directory
+loadTariffs(DEFAULTS, (msg) => appendLog(analysisLog, msg), (state, reason) => appState.setState(state, reason), () => populateDefaultsDisplayUI(DEFAULTS));
 
 // Initialize UI listeners after all functions are defined
 initializeUIListeners(DEFAULTS, {
@@ -1623,5 +1246,10 @@ initializeUIListeners(DEFAULTS, {
   renderMonthlyBreakdown,
   analyzeFilesNow,
   getRecordsFromCache,
-  ensureTempoDayMap: ensureTempoDayMapWrapper
+  ensureTempoDayMap: (records) => ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
+    if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+    if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+  })
 });
+
+

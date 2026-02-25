@@ -210,3 +210,31 @@ export function getPriceForPower(type, kva) {
   if (upper) return grid[upper];
   return grid[avail[avail.length - 1]] || 0;
 }
+
+/**
+ * OPTIMIZATION: Parallelize independent tariff cost calculations
+ * All tariff modes are independent and can be computed concurrently
+ * This reduces sequential computation time significantly
+ * @param {Array} records - Consumption records
+ * @param {Object} tariff - DEFAULTS tariff configuration
+ * @param {Object} tempoDayMap - Tempo color map
+ * @returns {Promise<Object>} All costs { base, hphc, tempo, tempoOpt, tch }
+ */
+export async function parallelComputeAllCosts(records, tariff, tempoDayMap = {}) {
+  const [baseCost, hphcCost, tempoCost, tempoOptCost, tchCost] = await Promise.all([
+    Promise.resolve(computeCostBase(records, tariff)),
+    Promise.resolve(computeCostHpHc(records, tariff, tariff.hp?.hcRange)),
+    Promise.resolve(computeCostTempo(records, tempoDayMap, tariff.tempo)),
+    Promise.resolve(computeCostTempoOptimized(records, tempoDayMap, tariff.tempo)),
+    Promise.resolve(computeCostTotalCharge(records, tariff.totalChargeHeures))
+  ]);
+
+  return {
+    base: baseCost,
+    hphc: hphcCost,
+    tempo: tempoCost,
+    tempoOpt: tempoOptCost,
+    tch: tchCost
+  };
+}
+
