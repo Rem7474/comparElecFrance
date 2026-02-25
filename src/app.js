@@ -18,6 +18,7 @@ import {
 } from './tempoCalendar.js';
 import * as chartRenderer from './chartRenderer.js';
 import { parseMultipleFiles, deduplicateRecords, sortRecordsByDate } from './fileHandler.js';
+import { initializeUIListeners } from './uiManager.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -30,47 +31,7 @@ const dropZone = document.getElementById('drop-zone');
 const dropZoneText = document.getElementById('drop-zone-text');
 const dropZoneSub = document.getElementById('drop-zone-subtext');
 
-if (fileInput && dropZone) {
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files.length > 0) {
-      dropZone.classList.add('has-file');
-      dropZoneText.textContent = fileInput.files[0].name;
-      dropZoneSub.textContent = 'Fichier prêt pour l\'analyse';
-      const icon = dropZone.querySelector('.file-drop-zone-icon');
-      if (icon) icon.textContent = '✅';
-    } else {
-      dropZone.classList.remove('has-file');
-      dropZoneText.textContent = 'Cliquez ou glissez le fichier ici';
-      dropZoneSub.textContent = 'Formats acceptés : .json (Enedis) ou .csv';
-      const icon = dropZone.querySelector('.file-drop-zone-icon');
-      if (icon) icon.textContent = '📂';
-    }
-  });
-
-  ['dragenter', 'dragover'].forEach((eventName) => {
-    dropZone.addEventListener(
-      eventName,
-      (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        dropZone.classList.add('drag-over');
-      },
-      false
-    );
-  });
-
-  ['dragleave', 'drop'].forEach((eventName) => {
-    dropZone.addEventListener(
-      eventName,
-      (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        dropZone.classList.remove('drag-over');
-      },
-      false
-    );
-  });
-}
+// File input and drop zone are now managed by uiManager.js
 
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
 function applyTheme(isDark) {
@@ -438,7 +399,7 @@ function renderHpHcPie(records) {
   }
 }
 
-async function analyzeFilesNow(records) {
+export async function analyzeFilesNow(records) {
   const dashboard = document.getElementById('dashboard-section');
   if (dashboard) dashboard.classList.remove('hidden');
 
@@ -624,7 +585,7 @@ function computeMonthlyBreakdown(records) {
   return results;
 }
 
-async function renderMonthlyBreakdown(records) {
+export async function renderMonthlyBreakdown(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
     alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
@@ -822,7 +783,7 @@ async function renderMonthlyBreakdown(records) {
   appendAnalysisLog('Ventilation mensuelle terminée.');
 }
 
-async function runPvSimulation(records) {
+export async function runPvSimulation(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
     alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
@@ -907,7 +868,7 @@ if (btnExportReport) {
   });
 }
 
-async function compareOffers(records) {
+export async function compareOffers(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
     alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
@@ -1866,25 +1827,7 @@ async function triggerFullRecalculation() {
   await runPvSimulation(records);
 }
 
-if (fileInput) {
-  fileInput.addEventListener('change', async () => {
-    const files = fileInput.files;
-    if (!files || files.length === 0) return;
-    appendAnalysisLog('Fichiers détectés — récupération des jours Tempo puis analyses...');
-
-    const dashboard = document.getElementById('dashboard-section');
-    if (dashboard) dashboard.classList.remove('hidden');
-
-    try {
-      const records = await getRecordsFromCache(files);
-      await ensureTempoDayMap(records);
-      await analyzeFilesNow(records);
-      await triggerFullRecalculation();
-    } catch (err) {
-      console.warn('Auto-run analysis failed', err);
-    }
-  });
-}
+// File input listener is now managed by uiManager.js
 
 const btnCalcPv = document.getElementById('btn-calc-pv');
 if (btnCalcPv) {
@@ -1973,9 +1916,11 @@ if (btnEstimateStandby) {
 
 window.calculateStandbyFromRecords = calculateStandbyFromRecords;
 
+// PV toggle is now managed by uiManager.js
 const togglePv = document.getElementById('toggle-pv');
 const pvSettingsContainer = document.getElementById('pv-settings-container');
 const metricPv = document.getElementById('metric-pv');
+
 function updatePVVisibility() {
   const isEnabled = togglePv ? togglePv.checked : true;
   if (pvSettingsContainer) pvSettingsContainer.style.display = isEnabled ? 'block' : 'none';
@@ -1988,8 +1933,8 @@ function updatePVVisibility() {
   }
 }
 
+// Initialize visibility on load
 if (togglePv) {
-  togglePv.addEventListener('change', updatePVVisibility);
   updatePVVisibility();
 }
 
@@ -2132,3 +2077,11 @@ async function loadTariffs() {
 }
 
 loadTariffs();
+
+// Initialize UI listeners after all functions are defined
+initializeUIListeners(DEFAULTS, {
+  compareOffers,
+  runPvSimulation,
+  renderMonthlyBreakdown,
+  analyzeFilesNow
+});

@@ -5,14 +5,25 @@
  */
 
 import { appState } from './state.js';
-import { compareOffers } from './analysisEngine.js';
-import { renderMonthlyBreakdown, runPvSimulation } from './app.js';
+
+// Functions to be injected
+let compareOffers = null;
+let runPvSimulation = null;
+let renderMonthlyBreakdown = null;
+let analyzeFilesNow = null;
 
 /**
  * Initialize all DOM event listeners and handlers
  * @param {Object} DEFAULTS - Default tariff configuration
+ * @param {Object} deps - Dependencies { compareOffers, runPvSimulation, renderMonthlyBreakdown, analyzeFilesNow }
  */
-export function initializeUIListeners(DEFAULTS) {
+export function initializeUIListeners(DEFAULTS, deps = {}) {
+  // Inject dependencies
+  compareOffers = deps.compareOffers || (() => console.warn('compareOffers not provided'));
+  runPvSimulation = deps.runPvSimulation || (() => console.warn('runPvSimulation not provided'));
+  renderMonthlyBreakdown = deps.renderMonthlyBreakdown || (() => console.warn('renderMonthlyBreakdown not provided'));
+  analyzeFilesNow = deps.analyzeFilesNow || (() => console.warn('analyzeFilesNow not provided'));
+
   setupFileInput();
   setupPVToggle();
   setupParameterInputs(DEFAULTS);
