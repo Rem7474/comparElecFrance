@@ -1319,6 +1319,8 @@ async function compareOffers(records) {
     const tempoPricePVSeries = monthly.map((m) => (m.consumption > 0 ? m.tempoPV.energy / m.consumption : null));
     const tempoOptPriceSeries = monthly.map((m) => (m.consumption > 0 ? m.tempoOpt.energy / m.consumption : null));
     const tempoOptPricePVSeries = monthly.map((m) => (m.consumption > 0 ? m.tempoOptPV.energy / m.consumption : null));
+    const tchPriceSeries = monthly.map((m) => (m.consumption > 0 ? (m.tch && m.tch.energy ? m.tch.energy / m.consumption : null) : null));
+    const tchPricePVSeries = monthly.map((m) => (m.consumption > 0 ? (m.tchPV && m.tchPV.energy ? m.tchPV.energy / m.consumption : null) : null));
     const pvProdSeries = monthly.map((m) => m.monthPV || 0);
     const pc = document.getElementById('price-pv-chart');
     if (pc) {
@@ -1340,6 +1342,10 @@ async function compareOffers(records) {
 
       datasets.push({ type: 'line', yAxisID: 'yPrice', label: 'Prix Tempo Opt. (€/kWh)', data: tempoOptPriceSeries, borderColor: '#117a8b', backgroundColor: '#117a8b33', fill: false, tension: 0.1 });
       if (isPvEnabled) datasets.push({ type: 'line', yAxisID: 'yPrice', label: 'Prix Tempo Opt. (avec PV)', data: tempoOptPricePVSeries, borderColor: '#17a2b8', backgroundColor: '#17a2b833', fill: false, tension: 0.1 });
+
+      // Total Charge'Heures (TCH)
+      datasets.push({ type: 'line', yAxisID: 'yPrice', label: "Prix TCH (€/kWh)", data: tchPriceSeries, borderColor: '#d62728', backgroundColor: '#d6272833', fill: false, tension: 0.1 });
+      if (isPvEnabled) datasets.push({ type: 'line', yAxisID: 'yPrice', label: "Prix TCH (avec PV)", data: tchPricePVSeries, borderColor: '#ff9896', backgroundColor: '#ff989633', fill: false, tension: 0.1 });
 
       if (isPvEnabled) datasets.push({ type: 'bar', yAxisID: 'yKwh', label: 'Production PV (kWh)', data: pvProdSeries, backgroundColor: '#f1c40f55' });
 
