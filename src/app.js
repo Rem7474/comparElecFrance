@@ -54,6 +54,7 @@ import {
 } from './workflowEngine.js';
 import { setupPvControls, setupPvToggle } from './pvManager.js';
 import { loadTariffs } from './tariffManager.js';
+import { loadAllTariffFiles, renderTariffCards } from './tariffDisplay.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -1236,8 +1237,21 @@ setupPvControls(DEFAULTS, triggerFullRecalculation, calculateStandbyFromRecords)
 // Setup PV visibility toggle
 setupPvToggle(triggerFullRecalculation);
 
-// Load tariff files from tariffs/ directory
+// Load tariff files from tariffs/ directory and render visual cards
 loadTariffs(DEFAULTS, (msg) => appendLog(analysisLog, msg), (state, reason) => appState.setState(state, reason), () => populateDefaultsDisplayUI(DEFAULTS));
+
+// Load and render tariff cards UI
+(async () => {
+  try {
+    const tariffData = await loadAllTariffFiles();
+    const container = document.getElementById('tariff-cards-container');
+    if (container) {
+      renderTariffCards(tariffData, DEFAULTS, container);
+    }
+  } catch (err) {
+    console.warn('Failed to render tariff cards:', err);
+  }
+})();
 
 // Initialize UI listeners after all functions are defined
 initializeUIListeners(DEFAULTS, {
