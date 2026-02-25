@@ -1,4 +1,9 @@
+/* DEPRECATED: `script.js` is retained for reference only.
+  All active logic has been migrated to `src/app.js` (ES modules).
+  Do not modify this file for new features — update `src/*` instead.
+*/
 // script.js — logique d'analyse JSON (consommation horaire), génération du script console Enedis,
+(function(){
 // récupération des couleurs Tempo (API + cache localStorage), simulation tarifs & photovoltaïque.
 (function(){
   const prmInput = document.getElementById('input-prm');
@@ -1881,7 +1886,7 @@
             tchResNoPV.cost,
             tchResWithPV.cost,
             bestId === 'tch',
-            "Tarif à 4 tranches horaires (HP/HC/HSC).",
+            "Tarif à 3 tranches horaires (HP/HC/HSC).",
             '',
             tchExtraInfo,
             true
@@ -1895,13 +1900,25 @@
     // render small bar chart (include Tempo)
     let labels, values, bgColors;
     if (isPvEnabled) {
-        labels = ['Base (sans PV)','Base (avec PV)','HP/HC (sans PV)','HP/HC (avec PV)','Tempo (sans PV)','Tempo (avec PV)','Tempo Opt. (sans PV)','Tempo Opt. (avec PV)'];
-        values = [baseCostNoPV, baseCostWithPV, hpCostNoPV, hpCostWithPV, tempoResNoPV.cost, tempoResWithPV.cost, tempoOptimizedCostNoPV, tempoOptimizedCost];
-        bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#59a14f','#bfe5b9','#117a8b','#17a2b8'];
+      labels = [
+        'Base (sans PV)','Base (avec PV)',
+        'HP/HC (sans PV)','HP/HC (avec PV)',
+        "Total Charge'Heures (sans PV)","Total Charge'Heures (avec PV)",
+        'Tempo (sans PV)','Tempo (avec PV)',
+        'Tempo Opt. (sans PV)','Tempo Opt. (avec PV)'
+      ];
+      values = [
+        baseCostNoPV, baseCostWithPV,
+        hpCostNoPV, hpCostWithPV,
+        tchResNoPV.cost, tchResWithPV.cost,
+        tempoResNoPV.cost, tempoResWithPV.cost,
+        tempoOptimizedCostNoPV, tempoOptimizedCost
+      ];
+      bgColors = ['#4e79a7','#a0cbe8','#f28e2b','#ffbe7d','#d62728','#ff9896','#59a14f','#bfe5b9','#117a8b','#17a2b8'];
     } else {
-        labels = ['Base','HP/HC','Tempo','Tempo Opt.'];
-        values = [baseCostNoPV, hpCostNoPV, tempoResNoPV.cost, tempoOptimizedCost];
-        bgColors = ['#4e79a7','#f28e2b','#59a14f','#17a2b8'];
+      labels = ['Base','HP/HC',"Total Charge'Heures",'Tempo','Tempo Opt.'];
+      values = [baseCostNoPV, hpCostNoPV, tchResNoPV.cost, tempoResNoPV.cost, tempoOptimizedCost];
+      bgColors = ['#4e79a7','#f28e2b','#d62728','#59a14f','#17a2b8'];
     }
 
     const ctx = offersCanvas.getContext('2d');

@@ -1,0 +1,8 @@
+{
+  "id": "injection",
+  "name": "Injection (export)",
+  "description": "Prix du kWh injecté sur le réseau (revenu export)",
+  "injectionPrice": 0.00,
+  "currency": "EUR",
+  "color": "#ff9f43"
+}
