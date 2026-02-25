@@ -647,9 +647,10 @@ async function renderMonthlyBreakdown(records) {
       '<th>HP/HC (€)</th><th>HP/HC (avec PV) (€)</th><th>Éco. PV HP/HC (€)</th>' +
       '<th>Tempo (€)</th><th>Tempo (avec PV) (€)</th><th>Éco. PV Tempo (€)</th>' +
       '<th>Tempo Opt. (€)</th><th>Tempo Opt. (avec PV) (€)</th><th>Éco. PV Tempo Opt. (€)</th>' +
-      '<th>TCH (€)</th><th>TCH (avec PV) (€)</th><th>Éco. PV TCH (€)</th>';
+      '<th>TCH (€)</th><th>TCH (avec PV) (€)</th><th>Éco. PV TCH (€)</th>' +
+      '<th>Diff. HP/HC vs Meilleure (€)</th>';
   } else {
-    headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th><th>TCH (€)</th>';
+    headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th><th>TCH (€)</th><th>Diff. HP/HC vs Meilleure (€)</th>';
   }
   hdr.innerHTML = headerHTML;
   table.appendChild(hdr);
@@ -668,6 +669,19 @@ async function renderMonthlyBreakdown(records) {
     const tr = document.createElement('tr');
     tr.className = 'row-divider';
     let rowHTML = `<td>${row.month}</td><td>${formatNumber(row.consumption)}</td>`;
+    
+    // Calculate the best offer (excluding tempoOpt) for this month
+    const candidates = [
+      { offerId: 'base', costWithPV: isPvEnabled ? row.basePV.total : row.base.total, costNoPV: row.base.total },
+      { offerId: 'tempo', costWithPV: isPvEnabled ? row.tempoPV.total : row.tempo.total, costNoPV: row.tempo.total },
+      { offerId: 'tch', costWithPV: isPvEnabled ? row.tchPV.total : row.tch.total, costNoPV: row.tch.total }
+    ];
+    const bestCandidate = candidates.reduce((a, b) => (a.costWithPV < b.costWithPV ? a : b));
+    const hphcCost = isPvEnabled ? row.hphcPV.total : row.hphc.total;
+    const diffVsHphc = hphcCost - bestCandidate.costWithPV;
+    const diffClass = diffVsHphc > 0 ? 'text-success' : '';
+    const diffDisplay = diffVsHphc !== 0 ? `${diffVsHphc > 0 ? '-' : '+'}${formatNumber(Math.abs(diffVsHphc))}` : '0';
+    
     if (isPvEnabled) {
       rowHTML +=
         `<td>${formatNumber(row.base.total)}</td>` +
@@ -684,14 +698,16 @@ async function renderMonthlyBreakdown(records) {
         `<td class="text-success">${formatNumber(sv.tempoOpt)}</td>` +
         `<td>${formatNumber(row.tch.total)}</td>` +
         `<td>${formatNumber(row.tchPV.total)}</td>` +
-        `<td class="text-success">${formatNumber(sv.tch)}</td>`;
+        `<td class="text-success">${formatNumber(sv.tch)}</td>` +
+        `<td class="${diffClass}" style="font-weight: bold;">${diffDisplay} €</td>`;
     } else {
       rowHTML +=
         `<td>${formatNumber(row.base.total)}</td>` +
         `<td>${formatNumber(row.hphc.total)}</td>` +
         `<td>${formatNumber(row.tempo.total)}</td>` +
         `<td>${formatNumber(row.tempoOpt.total)}</td>` +
-        `<td>${formatNumber(row.tch.total)}</td>`;
+        `<td>${formatNumber(row.tch.total)}</td>` +
+        `<td class="${diffClass}" style="font-weight: bold;">${diffDisplay} €</td>`;
     }
     tr.innerHTML = rowHTML;
     table.appendChild(tr);
