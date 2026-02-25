@@ -340,7 +340,7 @@ async function parseFilesToRecords(fileList) {
   return sorted;
 }
 
-async function getRecordsFromCache(fileList) {
+export async function getRecordsFromCache(fileList) {
   if (!fileList || fileList.length === 0) return [];
   const key = buildFileCacheKey(fileList);
   if (appState.recordsCacheKey === key && appState.records.length) {
@@ -1277,7 +1277,7 @@ function tempoStorageKey() {
   return (DEFAULTS.tempoApi && DEFAULTS.tempoApi.storageKey) || 'comparatifElec.tempoDayMap';
 }
 
-async function ensureTempoDayMap(records) {
+export async function ensureTempoDayMap(records) {
   let minD = null;
   let maxD = null;
   if (records && records.length) {
@@ -2083,5 +2083,7 @@ initializeUIListeners(DEFAULTS, {
   compareOffers,
   runPvSimulation,
   renderMonthlyBreakdown,
-  analyzeFilesNow
+  analyzeFilesNow,
+  getRecordsFromCache,
+  ensureTempoDayMap
 });

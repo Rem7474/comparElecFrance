@@ -11,11 +11,13 @@ let compareOffers = null;
 let runPvSimulation = null;
 let renderMonthlyBreakdown = null;
 let analyzeFilesNow = null;
+let getRecordsFromCache = null;
+let ensureTempoDayMap = null;
 
 /**
  * Initialize all DOM event listeners and handlers
  * @param {Object} DEFAULTS - Default tariff configuration
- * @param {Object} deps - Dependencies { compareOffers, runPvSimulation, renderMonthlyBreakdown, analyzeFilesNow }
+ * @param {Object} deps - Dependencies { compareOffers, runPvSimulation, renderMonthlyBreakdown, analyzeFilesNow, getRecordsFromCache, ensureTempoDayMap }
  */
 export function initializeUIListeners(DEFAULTS, deps = {}) {
   // Inject dependencies
@@ -23,6 +25,8 @@ export function initializeUIListeners(DEFAULTS, deps = {}) {
   runPvSimulation = deps.runPvSimulation || (() => console.warn('runPvSimulation not provided'));
   renderMonthlyBreakdown = deps.renderMonthlyBreakdown || (() => console.warn('renderMonthlyBreakdown not provided'));
   analyzeFilesNow = deps.analyzeFilesNow || (() => console.warn('analyzeFilesNow not provided'));
+  getRecordsFromCache = deps.getRecordsFromCache || (() => console.warn('getRecordsFromCache not provided'));
+  ensureTempoDayMap = deps.ensureTempoDayMap || (() => console.warn('ensureTempoDayMap not provided'));
 
   setupFileInput();
   setupPVToggle();
@@ -36,7 +40,8 @@ export function initializeUIListeners(DEFAULTS, deps = {}) {
 function setupFileInput() {
   const fileInput = document.getElementById('file-input');
   const dropZone = document.getElementById('drop-zone');
-  const analyzeBtn = document.getElementById('btn-analyze');
+  const dropZoneText = document.getElementById('drop-zone-text');
+  const dropZoneSub = document.getElementById('drop-zone-subtext');
 
   if (!fileInput || !dropZone) return;
 
@@ -61,22 +66,45 @@ function setupFileInput() {
     }
   });
 
-  // File input change
+  // Update drop zone visual feedback
   fileInput.addEventListener('change', async () => {
-    if (fileInput.files.length === 0) return;
+    if (fileInput.files.length === 0) {
+      if (dropZone) dropZone.classList.remove('has-file');
+      if (dropZoneText) dropZoneText.textContent = 'Cliquez ou glissez le fichier ici';
+      if (dropZoneSub) dropZoneSub.textContent = 'Formats acceptés : .json (Enedis) ou .csv';
+      return;
+    }
+
+    // Update visual feedback
+    if (dropZone) dropZone.classList.add('has-file');
+    if (dropZoneText) dropZoneText.textContent = fileInput.files.length > 1 
+      ? `${fileInput.files.length} fichiers sélectionnés` 
+      : fileInput.files[0].name;
+    if (dropZoneSub) dropZoneSub.textContent = '⏳ Analyse en cours...';
+    
+    // Show dashboard
+    const dashboard = document.getElementById('dashboard-section');
+    if (dashboard) dashboard.classList.remove('hidden');
     
     try {
-      analyzeBtn.disabled = true;
-      analyzeBtn.textContent = '⏳ Analyse en cours...';
+      // Parse files to records
+      const records = await getRecordsFromCache(fileInput.files);
       
-      await analyzeFilesNow(Array.from(fileInput.files));
+      // Ensure tempo data
+      await ensureTempoDayMap(records);
       
-      analyzeBtn.disabled = false;
-      analyzeBtn.textContent = 'Analyser';
+      // Run analysis
+      await analyzeFilesNow(records);
+      
+      // Run full calculations
+      await compareOffers(records);
+      await renderMonthlyBreakdown(records);
+      await runPvSimulation(records);
+      
+      if (dropZoneSub) dropZoneSub.textContent = '✅ Analyse terminée';
     } catch (error) {
       console.error('Erreur analyse fichiers:', error);
-      analyzeBtn.disabled = false;
-      analyzeBtn.textContent = 'Analyser';
+      if (dropZoneSub) dropZoneSub.textContent = `❌ Erreur: ${error.message || 'Erreur inconnue'}`;
     }
   });
 }
