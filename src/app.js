@@ -1052,15 +1052,40 @@ async function compareOffers(records) {
     }
   }
 
-  const offerDetails = [
-    { id: 'base', name: 'Base', val: baseCostWithPV },
-    { id: 'hphc', name: 'HP/HC', val: hpCostWithPV },
-    { id: 'tempo', name: 'Tempo', val: tempoResWithPV.cost || Infinity },
-    { id: 'tch', name: 'Total Charge\'Heures', val: tchResWithPV.cost }
-  ];
-  offerDetails.sort((a, b) => a.val - b.val);
-  const bestId = offerDetails[0].id;
-  const worstOffer = offerDetails[offerDetails.length - 1];
+  // Build offers dynamically from loaded tariffs (DEFAULTS / appState.tariffs)
+  const offers = [];
+
+  const pushOffer = (id, name, noPV, withPV) => {
+    offers.push({ id, name, costNoPV: Number(noPV) || 0, costWithPV: Number(withPV) || 0 });
+  };
+
+  // Base
+  if (DEFAULTS && DEFAULTS.priceBase != null) {
+    pushOffer('base', 'Base', baseCostNoPV, baseCostWithPV);
+  }
+
+  // HP/HC
+  if (DEFAULTS && DEFAULTS.hp) {
+    pushOffer('hphc', 'Heures Pleines / Creuses', hpCostNoPV, hpCostWithPV);
+  }
+
+  // Tempo (classic)
+  if (DEFAULTS && DEFAULTS.tempo) {
+    pushOffer('tempo', 'Tempo (Classique)', (tempoResNoPV.cost || 0), (tempoResWithPV.cost || 0));
+    // Tempo optimized
+    const tempoOptNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) || 0;
+    pushOffer('tempoOpt', 'Tempo (Optimisé)', tempoOptNoPV, tempoOptimizedCost);
+  }
+
+  // Total Charge'Heures (TCH)
+  if (DEFAULTS && DEFAULTS.totalChargeHeures) {
+    pushOffer('tch', "Total Charge'Heures", (tchResNoPV.cost || 0), (tchResWithPV.cost || 0));
+  }
+
+  // Sort offers by costWithPV
+  offers.sort((a, b) => a.costWithPV - b.costWithPV);
+  const bestId = offers.length ? offers[0].id : null;
+  const worstOffer = offers.length ? offers[offers.length - 1] : null;
 
   const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg) => {
     const div = document.createElement('div');
@@ -1130,115 +1155,53 @@ async function compareOffers(records) {
     return div;
   };
 
-  const tempoOptimizedResNoPV = computeCostTempoOptimized(recs, appState.tempoDayMap, DEFAULTS.tempo);
-  const tempoOptimizedCostNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost ? tempoOptimizedResNoPV.cost : 0) + subTempo;
-
   if (grid) {
     grid.innerHTML = '';
-    grid.appendChild(createCard('Base', baseCostNoPV, baseCostWithPV, bestId === 'base'));
-    grid.appendChild(createCard('Heures Pleines / Creuses', hpCostNoPV, hpCostWithPV, bestId === 'hphc'));
-    grid.appendChild(
-      createCard(
-        'Tempo (Classique)',
-        tempoResNoPV.cost,
-        tempoResWithPV.cost,
-        bestId === 'tempo',
-        'Sans changement d\'habitude de consommation.',
-        '',
-        '',
-        true
-      )
-    );
-
-    const diffVsClassic = tempoResWithPV.cost - tempoOptimizedCost;
-    const diffVsBase = baseCostWithPV - tempoOptimizedCost;
-    const savingsText = `
-      <div>Economie vs Tempo (Classique): <strong>${formatNumber(diffVsClassic)} €</strong></div>
-      <div>Economie vs Base: <strong>${formatNumber(diffVsBase)} €</strong></div>
-    `;
-
-    grid.appendChild(
-      createCard(
-        'Tempo (Optimisé)',
-        tempoOptimizedCostNoPV,
-        tempoOptimizedCost,
-        false,
-        'Avec report 50% HP Rouge vers HP Blanc.',
-        'card-optimized',
-        diffVsClassic > 0 ? savingsText : null
-      )
-    );
-
-    const diffTchVsBase = baseCostWithPV - tchResWithPV.cost;
-    const diffTchVsHpHc = hpCostWithPV - tchResWithPV.cost;
-    const tchExtraInfo =
-      diffTchVsBase > 0
-        ? `
-      <div>Économie vs Base: <strong>${formatNumber(diffTchVsBase)} €</strong></div>
-      <div>Économie vs HP/HC: <strong>${formatNumber(diffTchVsHpHc)} €</strong></div>
-    `
-        : null;
-
-    grid.appendChild(
-      createCard(
-        'Total Charge\'Heures',
-        tchResNoPV.cost,
-        tchResWithPV.cost,
-        bestId === 'tch',
-        'Tarif à 3 tranches horaires (HP/HC/HSC).',
-        '',
-        tchExtraInfo,
-        true
-      )
-    );
+    for (const ofr of offers) {
+      const isBest = bestId === ofr.id;
+      let warning = '';
+      let warningPositive = true;
+      let extra = '';
+      if (ofr.id === 'tempo') warning = "Sans changement d'habitude de consommation.";
+      if (ofr.id === 'tempoOpt') warning = 'Avec report 50% HP Rouge vers HP Blanc.';
+      if (ofr.id === 'tch') warning = "Tarif à 3 tranches horaires (HP/HC/HSC).";
+      grid.appendChild(createCard(ofr.name, ofr.costNoPV, ofr.costWithPV, isBest, warning, '', extra, warningPositive));
+    }
   }
 
-  let labels;
-  let values;
-  let bgColors;
-  if (isPvEnabled) {
-    labels = [
-      'Base (sans PV)',
-      'Base (avec PV)',
-      'HP/HC (sans PV)',
-      'HP/HC (avec PV)',
-      "Total Charge'Heures (sans PV)",
-      "Total Charge'Heures (avec PV)",
-      'Tempo (sans PV)',
-      'Tempo (avec PV)',
-      'Tempo Opt. (sans PV)',
-      'Tempo Opt. (avec PV)'
-    ];
-    values = [
-      baseCostNoPV,
-      baseCostWithPV,
-      hpCostNoPV,
-      hpCostWithPV,
-      tchResNoPV.cost,
-      tchResWithPV.cost,
-      tempoResNoPV.cost,
-      tempoResWithPV.cost,
-      tempoOptimizedCostNoPV,
-      tempoOptimizedCost
-    ];
-    bgColors = ['#4e79a7', '#a0cbe8', '#f28e2b', '#ffbe7d', '#d62728', '#ff9896', '#59a14f', '#bfe5b9', '#117a8b', '#17a2b8'];
-  } else {
-    labels = ['Base', 'HP/HC', "Total Charge'Heures", 'Tempo', 'Tempo Opt.'];
-    values = [baseCostNoPV, hpCostNoPV, tchResNoPV.cost, tempoResNoPV.cost, tempoOptimizedCost];
-    bgColors = ['#4e79a7', '#f28e2b', '#d62728', '#59a14f', '#17a2b8'];
-  }
+  // Build chart data from dynamic offers
+  const labels = [];
+  const values = [];
+  const bgColors = [];
+  const colorPalette = ['#4e79a7', '#f28e2b', '#59a14f', '#d62728', '#117a8b', '#a0cbe8', '#ffbe7d', '#bfe5b9', '#ff9896', '#17a2b8'];
+  offers.forEach((ofr, idx) => {
+    if (isPvEnabled) {
+      labels.push(`${ofr.name} (sans PV)`);
+      labels.push(`${ofr.name} (avec PV)`);
+      values.push(ofr.costNoPV);
+      values.push(ofr.costWithPV);
+      bgColors.push(colorPalette[idx % colorPalette.length]);
+      bgColors.push(colorPalette[(idx + 1) % colorPalette.length]);
+    } else {
+      labels.push(ofr.name);
+      values.push(ofr.costNoPV);
+      bgColors.push(colorPalette[idx % colorPalette.length]);
+    }
+  });
 
   const offersCanvas = document.getElementById('offers-chart');
-  const ctx = offersCanvas.getContext('2d');
-  if (window.offersChart) {
-    window.offersChart.destroy();
-    window.offersChart = null;
+  const ctx = offersCanvas && offersCanvas.getContext ? offersCanvas.getContext('2d') : null;
+  if (ctx) {
+    if (window.offersChart) {
+      window.offersChart.destroy();
+      window.offersChart = null;
+    }
+    window.offersChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Coût annuel (€)', data: values, backgroundColor: bgColors }] },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    });
   }
-  window.offersChart = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Coût annuel (€)', data: values, backgroundColor: bgColors }] },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
-  });
 
   appendAnalysisLog('Comparaison terminée.');
 
@@ -2072,26 +2035,66 @@ function mergeTariffs(target, source) {
 }
 
 async function loadTariffs() {
-  const files = [
-    { name: 'tariffs/base.json' },
-    { name: 'tariffs/hphc.json' },
-    { name: 'tariffs/tempo.json' },
-    { name: 'tariffs/total-charge-heures.json' },
-    { name: 'tariffs/injection.json' }
-  ];
-  for (const file of files) {
+  // Discover tariff files dynamically from the tariffs folder when possible.
+  async function discoverTariffFiles() {
+    // 1) Prefer an explicit index file if present
     try {
-      const resp = await fetch(file.name, { cache: 'no-cache' });
+      const idxResp = await fetch('tariffs/index.json', { cache: 'no-cache' });
+      if (idxResp.ok) {
+        const idx = await idxResp.json();
+        let list = null;
+        if (Array.isArray(idx)) list = idx.map((n) => (n.startsWith('tariffs/') ? n : `tariffs/${n}`));
+        else if (typeof idx === 'object' && idx.files && Array.isArray(idx.files)) list = idx.files.map((n) => (n.startsWith('tariffs/') ? n : `tariffs/${n}`));
+        if (list && list.length) {
+          try {
+            appendAnalysisLog && appendAnalysisLog(`tariffs/index.json trouvé — chargement de ${list.length} fichiers tarifaires`);
+          } catch (e) {
+            // ignore logging errors
+          }
+          return list;
+        }
+      }
+    } catch (err) {
+      // fallthrough
+    }
+
+    // 2) Try to fetch directory listing HTML (works on simple static servers)
+    try {
+      const resp = await fetch('tariffs/', { cache: 'no-cache' });
+      if (resp.ok) {
+        const txt = await resp.text();
+        const regex = /href=["']([^"']+\.json)["']/gi;
+        const found = new Set();
+        let m;
+        while ((m = regex.exec(txt))) {
+          let p = m[1];
+          if (!p.startsWith('tariffs/')) p = `tariffs/${p}`;
+          found.add(p);
+        }
+        if (found.size) return Array.from(found);
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    // 3) Fallback to conservative builtin list
+    return ['tariffs/base.json', 'tariffs/hphc.json', 'tariffs/tempo.json', 'tariffs/total-charge-heures.json', 'tariffs/injection.json'];
+  }
+
+  const files = await discoverTariffFiles();
+  for (const name of files) {
+    try {
+      const resp = await fetch(name, { cache: 'no-cache' });
       if (!resp.ok) {
-        showTariffErrorBanner(`Tarif introuvable: ${file.name} — valeurs par défaut utilisées.`);
-        console.error('Tariff fetch failed', file.name, resp.status);
+        showTariffErrorBanner(`Tarif introuvable: ${name} — valeurs par défaut utilisées.`);
+        console.error('Tariff fetch failed', name, resp.status);
         continue;
       }
       const json = await resp.json();
       mergeTariffs(DEFAULTS, json);
     } catch (err) {
-      showTariffErrorBanner(`Erreur de chargement du tarif ${file.name} — valeurs par défaut utilisées.`);
-      console.error('Tariff parse failed', file.name, err);
+      showTariffErrorBanner(`Erreur de chargement du tarif ${name} — valeurs par défaut utilisées.`);
+      console.error('Tariff parse failed', name, err);
     }
   }
   appState.tariffs = DEFAULTS;
