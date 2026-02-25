@@ -447,7 +447,23 @@ export async function renderMonthlyBreakdown(records) {
   }
 
   appendAnalysisLog('Calcul ventilation mensuelle...');
-  const data = computeMonthlyBreakdown(recs);
+  
+  // Prepare parameters for computeMonthlyBreakdown
+  const pvKwp = Number(document.getElementById('pv-kwp')?.value) || 0;
+  const pvRegion = document.getElementById('pv-region')?.value || 'centre';
+  const standbyW = Number(document.getElementById('pv-standby')?.value) || 0;
+  const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
+  const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
+  
+  const data = computeMonthlyBreakdown(
+    recs,
+    annualProduction,
+    exportPrice,
+    standbyW,
+    DEFAULTS.monthlySolarWeights,
+    DEFAULTS,
+    appState.tempoDayMap || {}
+  );
   const container = document.getElementById('monthly-results');
   if (!container) return;
   container.innerHTML = '';
@@ -665,7 +681,21 @@ export async function runPvSimulation(records) {
       container.innerHTML = '<canvas id="pv-power-chart" class="chart-canvas-small"></canvas>';
       const pc = document.getElementById('pv-power-chart');
 
-      const monthly = computeMonthlyBreakdown(recs);
+      const pvKwp = Number(document.getElementById('pv-kwp')?.value) || 0;
+      const pvRegion = document.getElementById('pv-region')?.value || 'centre';
+      const standbyW = Number(document.getElementById('pv-standby')?.value) || 0;
+      const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
+      const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
+
+      const monthly = computeMonthlyBreakdown(
+        recs,
+        annualProduction,
+        exportPrice,
+        standbyW,
+        DEFAULTS.monthlySolarWeights,
+        DEFAULTS,
+        appState.tempoDayMap || {}
+      );
       const mlabels = monthly.map((m) => m.month);
       const productionSeries = monthly.map((m) => Number(m.monthPV || 0));
       const autoconsumedSeries = monthly.map((m) => Number(m.monthSelf || 0));
@@ -1069,7 +1099,21 @@ export async function compareOffers(records) {
   }
 
   try {
-    const monthly = computeMonthlyBreakdown(recs);
+    const pvKwp = Number(document.getElementById('pv-kwp')?.value) || 0;
+    const pvRegion = document.getElementById('pv-region')?.value || 'centre';
+    const standbyW = Number(document.getElementById('pv-standby')?.value) || 0;
+    const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
+    const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
+
+    const monthly = computeMonthlyBreakdown(
+      recs,
+      annualProduction,
+      exportPrice,
+      standbyW,
+      DEFAULTS.monthlySolarWeights,
+      DEFAULTS,
+      appState.tempoDayMap || {}
+    );
     const mlabels = monthly.map((m) => m.month);
     const basePriceSeries = monthly.map((m) => (m.consumption > 0 ? m.base.energy / m.consumption : null));
     const basePricePVSeries = monthly.map((m) => (m.consumption > 0 ? m.basePV.energy / m.consumption : null));
