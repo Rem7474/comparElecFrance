@@ -1088,10 +1088,25 @@ async function compareOffers(records) {
     pushOffer('tch', "Total Charge'Heures", (tchResNoPV.cost || 0), (tchResWithPV.cost || 0));
   }
 
-  // Sort offers by costWithPV
-  offers.sort((a, b) => a.costWithPV - b.costWithPV);
-  const bestId = offers.length ? offers[0].id : null;
-  const worstOffer = offers.length ? offers[offers.length - 1] : null;
+  // Compute best/worst by cost but display Base then HPHC first, then the rest
+  const sortedByCost = offers.slice().sort((a, b) => a.costWithPV - b.costWithPV);
+  const bestByCost = sortedByCost.length ? sortedByCost[0] : null;
+  const worstByCost = sortedByCost.length ? sortedByCost[sortedByCost.length - 1] : null;
+
+  // Ensure Base and HPHC are displayed first (if present), then the remaining offers ordered by cost
+  const baseOffer = offers.find((o) => o.id === 'base');
+  const hphcOffer = offers.find((o) => o.id === 'hphc');
+  const othersSorted = sortedByCost.filter((o) => o.id !== 'base' && o.id !== 'hphc');
+  const orderedOffers = [];
+  if (baseOffer) orderedOffers.push(baseOffer);
+  if (hphcOffer) orderedOffers.push(hphcOffer);
+  for (const o of othersSorted) orderedOffers.push(o);
+  // Replace offers with the display-ordered list
+  offers.length = 0;
+  offers.push(...orderedOffers);
+
+  const bestId = bestByCost ? bestByCost.id : null;
+  const worstOffer = worstByCost || null;
 
   const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg) => {
     const div = document.createElement('div');
@@ -1171,6 +1186,18 @@ async function compareOffers(records) {
       if (ofr.id === 'tempo') warning = "Sans changement d'habitude de consommation.";
       if (ofr.id === 'tempoOpt') warning = 'Avec report 50% HP Rouge vers HP Blanc.';
       if (ofr.id === 'tch') warning = "Tarif à 3 tranches horaires (HP/HC/HSC).";
+      // Add explicit comparison for HP/HC vs best offer
+      if (ofr.id === 'hphc' && bestId && bestId !== 'hphc') {
+        try {
+          const bestObj = sortedByCost.find((x) => x.id === bestId);
+          if (bestObj) {
+            const diff = ofr.costWithPV - bestObj.costWithPV;
+            extra = `Diff vs meilleure offre (${bestObj.name}): ${diff > 0 ? '+' : ''}${formatNumber(diff)} €`;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
       grid.appendChild(createCard(ofr.name, ofr.costNoPV, ofr.costWithPV, isBest, warning, '', extra, warningPositive));
     }
   }
