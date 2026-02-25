@@ -11,7 +11,8 @@ import {
   computeCostTotalCharge,
   computeCostTempo,
   computeCostTempoOptimized,
-  applyPvReduction
+  applyPvReduction,
+  computeCostWithProfile
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 
@@ -422,4 +423,180 @@ export function computeDailyTempoCostMap(records, dayMap, defaults) {
   }
 
   return out;
+}
+
+/**
+ * Build tariff offers data without DOM manipulation
+ * Returns all calculated data for offers to be displayed
+ * 
+ * @param {Array} records - Consumption records
+ * @param {Object} params - Configuration parameters
+ * @returns {Object} Offers data { offers, stats, pv, colors, bestId }
+ */
+export function buildOffersData(records, params) {
+  if (!records || records.length === 0) {
+    return { offers: [], stats: {}, pv: {}, colors: {}, bestId: null };
+  }
+
+  const {
+    DEFAULTS,
+    tempoDayMap,
+    isPvEnabled,
+    annualProduction,
+    exportPrice,
+    monthlyWeights,
+    standbyW,
+    installCost,
+    costBase,
+    costPanel
+  } = params;
+
+  // Calculate per-hour annual
+  const perHourAnnual = Array.from({ length: 24 }, () => 0);
+  const uniqueMonths = new Set();
+
+  for (const rec of records) {
+    const value = Number(rec.valeur) || 0;
+    const date = new Date(rec.dateDebut);
+    perHourAnnual[date.getHours()] += value;
+    uniqueMonths.add(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+
+  const monthsCount = Math.max(1, uniqueMonths.size);
+
+  // Base tariff costs
+  const priceBase = Number(DEFAULTS.priceBase) || 0.18;
+  const hpParams = {
+    mode: 'hp-hc',
+    php: Number(DEFAULTS.hp?.php) || 0.2,
+    phc: Number(DEFAULTS.hp?.phc) || 0.12,
+    hcRange: DEFAULTS.hp?.hcRange || '22-06'
+  };
+
+  const subBase = (Number(DEFAULTS.subBase) || 0) * monthsCount;
+  const subHp = (Number(DEFAULTS.hp?.sub) || 0) * monthsCount;
+  const subTempo = (Number(DEFAULTS.tempo?.sub) || 0) * monthsCount;
+  const subTch = (Number(DEFAULTS.totalChargeHeures?.sub) || 0) * monthsCount;
+
+  // No-PV costs
+  const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'base' }).cost + subBase;
+  const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost + subHp;
+
+  const tempoResNoPV = computeCostTempo(records, tempoDayMap, DEFAULTS.tempo);
+  tempoResNoPV.cost += subTempo;
+
+  const tempoOptimizedResNoPV = computeCostTempoOptimized(records, tempoDayMap, DEFAULTS.tempo);
+  if (tempoOptimizedResNoPV && typeof tempoOptimizedResNoPV.cost === 'number') {
+    tempoOptimizedResNoPV.cost += subTempo;
+  }
+
+  const tchResNoPV = computeCostTotalCharge(records, DEFAULTS.totalChargeHeures);
+  tchResNoPV.cost += subTch;
+
+  // PV simulation
+  const pvSim = simulatePVEffect(records, annualProduction, exportPrice, standbyW, monthlyWeights);
+  const perHourWithPV = perHourAnnual.map((v, h) => Math.max(0, v - (pvSim.consumedByHour[h] || 0)));
+
+  // With-PV costs
+  const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'base' }).cost + subBase;
+  const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost + subHp;
+
+  const recordsWithPV = records.map((rec) => ({ ...rec }));
+  for (const rec of recordsWithPV) {
+    const key = String(rec.dateDebut);
+    const reduction = (pvSim.allocatedByTimestamp && pvSim.allocatedByTimestamp[key]) || 0;
+    rec.valeur = Math.max(0, Number(rec.valeur || 0) - reduction);
+  }
+
+  const tempoResWithPV = computeCostTempo(recordsWithPV, tempoDayMap, DEFAULTS.tempo);
+  tempoResWithPV.cost += subTempo;
+
+  const tchResWithPV = computeCostTotalCharge(recordsWithPV, DEFAULTS.totalChargeHeures);
+  tchResWithPV.cost += subTch;
+
+  const tempoOptimizedResWithPV = computeCostTempoOptimized(recordsWithPV, tempoDayMap, DEFAULTS.tempo);
+  const tempoOptimizedCost = (tempoOptimizedResWithPV && tempoOptimizedResWithPV.cost ? tempoOptimizedResWithPV.cost : tempoResWithPV.cost) + subTempo;
+
+  const exportIncome = pvSim.exported * exportPrice;
+
+  // Build offers list
+  const offers = [];
+
+  const pushOffer = (id, name, noPV, withPV) => {
+    offers.push({ id, name, costNoPV: Number(noPV) || 0, costWithPV: Number(withPV) || 0 });
+  };
+
+  if (DEFAULTS && DEFAULTS.priceBase != null) {
+    pushOffer('base', 'Base', baseCostNoPV, baseCostWithPV);
+  }
+
+  if (DEFAULTS && DEFAULTS.hp) {
+    pushOffer('hphc', 'Heures Pleines / Creuses', hpCostNoPV, hpCostWithPV);
+  }
+
+  if (DEFAULTS && DEFAULTS.tempo) {
+    pushOffer('tempo', 'Tempo (Classique)', tempoResNoPV.cost || 0, tempoResWithPV.cost || 0);
+    const tempoOptNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) || 0;
+    pushOffer('tempoOpt', 'Tempo (Optimisé)', tempoOptNoPV, tempoOptimizedCost);
+  }
+
+  if (DEFAULTS && DEFAULTS.totalChargeHeures) {
+    pushOffer('tch', "Total Charge'Heures", tchResNoPV.cost || 0, tchResWithPV.cost || 0);
+  }
+
+  // Sort and reorder
+  const sortedByCost = offers.slice().sort((a, b) => a.costWithPV - b.costWithPV);
+  const bestByCost = sortedByCost.length ? sortedByCost[0] : null;
+  const worstByCost = sortedByCost.length ? sortedByCost[sortedByCost.length - 1] : null;
+
+  const baseOffer = offers.find((o) => o.id === 'base');
+  const hphcOffer = offers.find((o) => o.id === 'hphc');
+  const othersSorted = sortedByCost.filter((o) => o.id !== 'base' && o.id !== 'hphc');
+  const orderedOffers = [];
+  if (baseOffer) orderedOffers.push(baseOffer);
+  if (hphcOffer) orderedOffers.push(hphcOffer);
+  for (const o of othersSorted) orderedOffers.push(o);
+  offers.length = 0;
+  offers.push(...orderedOffers);
+
+  // Select best (exclude tempoOpt)
+  const validBest = sortedByCost.find((o) => o.id !== 'tempoOpt');
+  const bestId = validBest ? validBest.id : null;
+  const worstOffer = worstByCost || null;
+
+  // Color mapping
+  const getOfferColor = (offerId) => {
+    const colorMap = {
+      'base': '#4e79a7',
+      'hphc': '#f28e2b',
+      'tempo': '#59a14f',
+      'tempoOpt': '#117a8b',
+      'tch': '#d62728'
+    };
+    return colorMap[offerId] || '#a0cbe8';
+  };
+
+  const colors = {};
+  offers.forEach((ofr) => {
+    colors[ofr.id] = getOfferColor(ofr.id);
+  });
+
+  return {
+    offers,
+    stats: {
+      total: records.reduce((sum, r) => sum + (Number(r.valeur) || 0), 0),
+      monthsCount,
+      minCost: Math.min(baseCostWithPV, hpCostWithPV, tempoResWithPV.cost || Infinity, tchResWithPV.cost),
+      exportIncome
+    },
+    pv: {
+      enabled: isPvEnabled,
+      production: annualProduction,
+      sim: pvSim,
+      installCost
+    },
+    colors,
+    bestId,
+    worstOffer
+  };
 }

@@ -707,7 +707,40 @@ input:checked + .slider:before {
 .report-card-gain { font-size: 0.9rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); }
 .report-card-gain-value { font-size: 1.1rem; font-weight: 700; }
 
+/* Input Validation States */
+input.input-error {
+  border-color: var(--danger) !important;
+  background-color: #fff5f5;
+}
 
+input.input-error:focus {
+  box-shadow: 0 0 0 3px rgba(232, 17, 35, 0.1);
+}
+
+.log-error {
+  color: var(--danger);
+  padding: 8px 12px;
+  background-color: #fff5f5;
+  border-left: 3px solid var(--danger);
+  margin-top: 8px;
+  border-radius: var(--border-radius);
+  font-size: 0.9rem;
+}
+
+.log-success {
+  color: var(--success);
+  padding: 8px 12px;
+  background-color: #f5fff5;
+  border-left: 3px solid var(--success);
+  margin-top: 8px;
+  border-radius: var(--border-radius);
+  font-size: 0.9rem;
+}
+
+.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
 
 /* Print Styles */
 @media print {
