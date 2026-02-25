@@ -1340,13 +1340,13 @@ async function ensureTempoDayMap(records) {
   }
 
   const finalMap = buildFinalTempoMap(records, stored, apiMap, genMap);
-  appState.tempoDayMap = finalMap;
+  appState.setState({ tempoDayMap: finalMap }, 'TEMPO_MAP_LOADED');
 
   const src = {};
   for (const key of Object.keys(genMap)) src[key] = 'gen';
   for (const key of Object.keys(stored || {})) src[key] = 'store';
   for (const key of Object.keys(apiMap || {})) src[key] = 'api';
-  appState.tempoSourceMap = src;
+  appState.setState({ tempoSourceMap: src }, 'TEMPO_SOURCES_UPDATED');
 
   return finalMap;
 }
