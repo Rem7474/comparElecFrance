@@ -1003,6 +1003,12 @@ async function compareOffers(records) {
   const tempoResNoPV = computeCostTempo(recs, appState.tempoDayMap, DEFAULTS.tempo);
   tempoResNoPV.cost += subTempo;
 
+  // Tempo optimized (no PV) - compute before building offers list
+  const tempoOptimizedResNoPV = computeCostTempoOptimized(recs, appState.tempoDayMap, DEFAULTS.tempo);
+  if (tempoOptimizedResNoPV && typeof tempoOptimizedResNoPV.cost === 'number') {
+    tempoOptimizedResNoPV.cost += subTempo;
+  }
+
   const tchResNoPV = computeCostTotalCharge(recs, DEFAULTS.totalChargeHeures);
   tchResNoPV.cost += subTch;
 
@@ -2034,6 +2040,52 @@ function mergeTariffs(target, source) {
   return target;
 }
 
+// Map common tariff JSON file shapes into the DEFAULTS structure
+function mapTariffToDefaults(tariffJson) {
+  if (!tariffJson || typeof tariffJson !== 'object') return false;
+  const id = tariffJson.id || tariffJson.name || null;
+  try {
+    if (id === 'base' || tariffJson.type === 'flat') {
+      if (tariffJson.price != null) DEFAULTS.priceBase = tariffJson.price;
+      if (tariffJson.subscriptions) DEFAULTS.subBase = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.subBase;
+      return true;
+    }
+    if (id === 'hphc' || tariffJson.type === 'two-tier') {
+      if (tariffJson.php != null) DEFAULTS.hp.php = tariffJson.php;
+      if (tariffJson.phc != null) DEFAULTS.hp.phc = tariffJson.phc;
+      if (tariffJson.hcRange) DEFAULTS.hp.hcRange = tariffJson.hcRange;
+      if (tariffJson.subscriptions) DEFAULTS.hp.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.hp.sub;
+      return true;
+    }
+    if (id === 'tempo' || tariffJson.type === 'tempo') {
+      if (tariffJson.blue) DEFAULTS.tempo.blue = tariffJson.blue;
+      if (tariffJson.white) DEFAULTS.tempo.white = tariffJson.white;
+      if (tariffJson.red) DEFAULTS.tempo.red = tariffJson.red;
+      if (tariffJson.hcRange) DEFAULTS.tempo.hcRange = tariffJson.hcRange;
+      if (tariffJson.approxPct) DEFAULTS.tempo.approxPct = tariffJson.approxPct;
+      if (tariffJson.subscriptions) DEFAULTS.tempo.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.tempo.sub;
+      return true;
+    }
+    if (id === 'totalCharge' || tariffJson.type === 'three-tier') {
+      if (tariffJson.php != null) DEFAULTS.totalChargeHeures.php = tariffJson.php;
+      if (tariffJson.phc != null) DEFAULTS.totalChargeHeures.phc = tariffJson.phc;
+      if (tariffJson.phsc != null) DEFAULTS.totalChargeHeures.phsc = tariffJson.phsc;
+      if (tariffJson.hpRange) DEFAULTS.totalChargeHeures.hpRange = tariffJson.hpRange;
+      if (tariffJson.hcRange) DEFAULTS.totalChargeHeures.hcRange = tariffJson.hcRange;
+      if (tariffJson.hscRange) DEFAULTS.totalChargeHeures.hscRange = tariffJson.hscRange;
+      if (tariffJson.subscriptions) DEFAULTS.totalChargeHeures.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.totalChargeHeures.sub;
+      return true;
+    }
+    if (id === 'injection' || tariffJson.injectionPrice != null) {
+      if (tariffJson.injectionPrice != null) DEFAULTS.injectionPrice = tariffJson.injectionPrice;
+      return true;
+    }
+  } catch (e) {
+    // ignore mapping errors and fallback to generic merge
+  }
+  return false;
+}
+
 async function loadTariffs() {
   // Discover tariff files dynamically from the tariffs folder when possible.
   async function discoverTariffFiles() {
@@ -2091,7 +2143,9 @@ async function loadTariffs() {
         continue;
       }
       const json = await resp.json();
-      mergeTariffs(DEFAULTS, json);
+      // Try mapping known tariff file formats into DEFAULTS first
+      const mapped = mapTariffToDefaults(json);
+      if (!mapped) mergeTariffs(DEFAULTS, json);
     } catch (err) {
       showTariffErrorBanner(`Erreur de chargement du tarif ${name} — valeurs par défaut utilisées.`);
       console.error('Tariff parse failed', name, err);
