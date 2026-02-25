@@ -1128,15 +1128,13 @@ async function compareOffers(records) {
       if (ofr.id === 'tempo') warning = "Sans changement d'habitude de consommation.";
       if (ofr.id === 'tempoOpt') warning = 'Avec report 50% HP Rouge vers HP Blanc.';
       if (ofr.id === 'tch') warning = "Tarif à 3 tranches horaires (HP/HC/HSC).";
-      // Show comparison message on best offer, not on other offers
+      // Show savings vs HP/HC on best offer
       if (isBest && bestId) {
         try {
-          // Find second best offer for comparison, or any other offer
-          const otherOffers = sortedByCost.filter((x) => x.id !== bestId);
-          if (otherOffers.length > 0) {
-            const secondBest = otherOffers[0];
-            const diff = secondBest.costWithPV - ofr.costWithPV;
-            extra = `Diff vs ${secondBest.name}: ${diff > 0 ? '+' : ''}${formatNumber(diff)} €`;
+          const hphcOffer = offers.find((x) => x.id === 'hphc');
+          if (hphcOffer && hphcOffer.id !== bestId) {
+            const savings = hphcOffer.costWithPV - ofr.costWithPV;
+            extra = `Économie par rapport à l'offre HP/HC: <strong>${savings > 0 ? '+' : ''}${formatNumber(savings)} €</strong>`;
           }
         } catch (e) {
           // ignore
