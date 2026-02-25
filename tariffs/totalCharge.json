@@ -1,0 +1,24 @@
+{
+  "id": "totalCharge",
+  "name": "Total Charge",
+  "type": "three-tier",
+  "description": "3 tranches horaires (HP/HC/HSC - Super Creuses)",
+  "php": 0.2305,
+  "phc": 0.1579,
+  "phsc": 0.1337,
+  "hpRange": "07-23",
+  "hcRange": "23-02;06-07",
+  "hscRange": "02-06",
+  "subscriptions": {
+    "6": 15.65,
+    "9": 19.83,
+    "12": 23.93,
+    "15": 27.61,
+    "18": 31.03,
+    "24": 38.97,
+    "30": 46.27,
+    "36": 52.54
+  },
+  "color": "#d62728",
+  "colorWithPV": "#ff9896"
+}
