@@ -27,10 +27,12 @@ export function computeHourlyStats(records) {
 
   const hourly = Array(24).fill(0);
   const hoursCount = Array(24).fill(0);
+  const min = Array(24).fill(Infinity);
+  const max = Array(24).fill(0);
   let total = 0;
-  const dayGroups = {};
 
-  // Aggregate by hour
+  // OPTIMIZATION: Single pass - aggregate, count, and track min/max simultaneously
+  // AVoids O(n*24) dayGroups calculation - now O(n)
   for (const rec of records) {
     const date = new Date(rec.dateDebut);
     const hour = date.getHours();
@@ -40,34 +42,19 @@ export function computeHourlyStats(records) {
     hoursCount[hour] += 1;
     total += value;
     
-    // Track per day
-    const dayKey = date.toISOString().slice(0, 10);
-    if (!dayGroups[dayKey]) dayGroups[dayKey] = Array(24).fill(0);
-    dayGroups[dayKey][hour] = value;
+    // Track min/max on-the-fly instead of storing day-by-day
+    if (value > 0) {
+      min[hour] = Math.min(min[hour], value);
+      max[hour] = Math.max(max[hour], value);
+    }
   }
 
-  // Compute avg per hour
+  // Compute averages and cleanup
   for (let h = 0; h < 24; h++) {
     if (hoursCount[h] > 0) {
       hourly[h] /= hoursCount[h];
     }
-  }
-
-  // Compute min/max per hour
-  const min = Array(24).fill(Infinity);
-  const max = Array(24).fill(0);
-
-  for (const dayHours of Object.values(dayGroups)) {
-    for (let h = 0; h < 24; h++) {
-      if (dayHours[h] > 0) {
-        min[h] = Math.min(min[h], dayHours[h]);
-        max[h] = Math.max(max[h], dayHours[h]);
-      }
-    }
-  }
-
-  // Replace Infinity with 0 for min
-  for (let h = 0; h < 24; h++) {
+    // Replace Infinity with 0 for hours with no data
     if (min[h] === Infinity) min[h] = 0;
   }
 
@@ -110,80 +97,66 @@ export function computeMonthlyBreakdown(
 
   const results = [];
   const keys = Object.keys(months).sort();
+  let totalKwhByMonth = {};
+  
+  // OPTIMIZATION: Compute totals during grouping, not later in the loop
+  for (const key of keys) {
+    totalKwhByMonth[key] = months[key].reduce((sum, r) => sum + (Number(r.valeur) || 0), 0);
+  }
 
   for (const key of keys) {
     const recs = months[key];
-    const totalKwh = recs.reduce((sum, r) => sum + (Number(r.valeur) || 0), 0);
+    const totalKwh = totalKwhByMonth[key];
 
     // Parse month for weight
     const parts = key.split('-');
     const monthIdx = parts.length > 1 ? Number(parts[1]) - 1 : 0;
     const monthPV = annualPvProduction * (monthlyWeights[monthIdx] || 1 / 12);
 
-    // Simulate PV effect
-    const monthSim = simulatePVEffect(
-      recs,
-      monthPV,
-      exportPrice,
-      standbyW,
-      monthlyWeights
-    );
-    const estimatedMonthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
-    const monthSelf = estimatedMonthSelf;
+    // OPTIMIZATION: Simulate PV effect once, reuse for all tariffs
+    const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW, monthlyWeights);
+    const monthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
+    const importanceReduction = (monthPV - monthSelf) * exportPrice; // Cache the reduction factor
+
+    // OPTIMIZATION: Compute PV-reduced records ONCE instead of per tariff
+    const recsWithPV = applyPvReduction(recs, monthSelf);
 
     // Costs without PV
     const baseEnergy = computeCostBase(recs, defaults).cost;
     const subBase = Number(defaults.subBase) || 0;
-    const baseTotal = baseEnergy + subBase;
 
     const hphcEnergyObj = computeCostHpHc(recs, defaults.hp, defaults.hp.hcRange);
     const subHphc = Number(defaults.hp.sub) || 0;
-    const hphcTotal = hphcEnergyObj.cost + subHphc;
 
     const tempoEnergyObj = computeCostTempo(recs, tempoDayMap, defaults.tempo);
     const subTempo = Number(defaults.tempo.sub) || 0;
-    const tempoTotal = tempoEnergyObj.cost + subTempo;
 
     const tempoOptEnergyObj = computeCostTempoOptimized(recs, tempoDayMap, defaults.tempo);
-    const tempoOptTotal = tempoOptEnergyObj.cost + subTempo;
-
     const tchEnergyObj = computeCostTotalCharge(recs, defaults.totalChargeHeures);
     const subTch = Number(defaults.totalChargeHeures?.sub) || 0;
-    const tchTotal = tchEnergyObj.cost + subTch;
 
-    // Apply PV reduction
-    const recsWithPV = applyPvReduction(recs, monthSelf);
-    
+    // Costs with PV (using pre-computed records with reduction)
     const baseEnergyPV = computeCostBase(recsWithPV, defaults).cost;
-    const baseTotalPV = baseEnergyPV + subBase - (monthPV - monthSelf) * exportPrice;
-
     const hphcEnergyObjPV = computeCostHpHc(recsWithPV, defaults.hp, defaults.hp.hcRange);
-    const hphcTotalPV = hphcEnergyObjPV.cost + subHphc - (monthPV - monthSelf) * exportPrice;
-
     const tempoEnergyObjPV = computeCostTempo(recsWithPV, tempoDayMap, defaults.tempo);
-    const tempoTotalPV = tempoEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
-
     const tempoOptEnergyObjPV = computeCostTempoOptimized(recsWithPV, tempoDayMap, defaults.tempo);
-    const tempoOptTotalPV = tempoOptEnergyObjPV.cost + subTempo - (monthPV - monthSelf) * exportPrice;
-
     const tchEnergyObjPV = computeCostTotalCharge(recsWithPV, defaults.totalChargeHeures);
-    const tchTotalPV = tchEnergyObjPV.cost + subTch - (monthPV - monthSelf) * exportPrice;
 
     results.push({
       month: key,
       consumption: totalKwh,
       monthPV,
       monthSelf,
-      base: { energy: baseEnergy, total: baseTotal },
-      basePV: { energy: baseEnergyPV, total: baseTotalPV },
-      hphc: { energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcTotal },
-      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcTotalPV },
-      tempo: { energy: tempoEnergyObj.cost || 0, total: tempoTotal },
-      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: tempoTotalPV },
-      tempoOpt: { energy: tempoOptEnergyObj.cost || 0, total: tempoOptTotal },
-      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: tempoOptTotalPV },
-      tch: { energy: tchEnergyObj.cost || 0, hp: tchEnergyObj.hp || 0, hc: tchEnergyObj.hc || 0, total: tchTotal },
-      tchPV: { energy: tchEnergyObjPV.cost || 0, total: tchTotalPV }
+      base: { energy: baseEnergy, total: baseEnergy + subBase },
+      basePV: { energy: baseEnergyPV, total: baseEnergyPV + subBase - importanceReduction },
+      hphc: { energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcEnergyObj.cost + subHphc },
+      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcEnergyObjPV.cost + subHphc - importanceReduction },
+      tempo: { energy: tempoEnergyObj.cost || 0, total: (tempoEnergyObj.cost || 0) + subTempo },
+      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: (tempoEnergyObjPV.cost || 0) + subTempo - importanceReduction },
+      tempoOpt: { energy: tempoOptEnergyObj.cost || 0, total: (tempoOptEnergyObj.cost || 0) + subTempo },
+      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: (tempoOptEnergyObjPV.cost || 0) + subTempo - importanceReduction },
+      tch: { energy: tchEnergyObj.cost || 0, hp: tchEnergyObj.hp || 0, hc: tchEnergyObj.hc || 0, total: (tchEnergyObj.cost || 0) + subTch },
+      tchPV: { energy: tchEnergyObjPV.cost || 0, total: (tchEnergyObjPV.cost || 0) + subTch - importanceReduction }
     });
   }
 

@@ -37,6 +37,14 @@ import {
   computeDailyTempoCostMap,
   computeMonthlyBreakdown
 } from './analysisEngine.js';
+import {
+  invalidateCache,
+  extractPvParams,
+  readDomValuesOnce,
+  buildTableFragmentEfficiently,
+  calculateInstallCost,
+  applyPvToRecords
+} from './calculationEngine.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
