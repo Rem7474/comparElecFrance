@@ -325,3 +325,43 @@ export function setElementLoading(element, isLoading) {
     element.textContent = element.dataset.originalText || 'Valider';
   }
 }
+
+/**
+ * Update display of current tariff defaults and settings
+ * @param {Object} DEFAULTS - Tariff defaults object
+ */
+export function populateDefaultsDisplay(DEFAULTS) {
+  const el = document.getElementById('defaults-display');
+  if (el) {
+    const tempoDisplay = (color) => {
+      const value = DEFAULTS.tempo[color];
+      if (!value) return '-';
+      if (typeof value === 'object') return `HP ${value.hp} €/kWh — HC ${value.hc} €/kWh`;
+      return `${value} €/kWh`;
+    };
+    const txt =
+      `Base: ${DEFAULTS.priceBase} €/kWh (abonnement ${DEFAULTS.subBase} €/mois)\n` +
+      `HP/HC: HP ${DEFAULTS.hp.php} €/kWh — HC ${DEFAULTS.hp.phc} €/kWh (HC range ${DEFAULTS.hp.hcRange}, abonnement ${DEFAULTS.hp.sub} €/mois)\n` +
+      `Tempo: Bleu ${tempoDisplay('blue')} — Blanc ${tempoDisplay('white')} — Rouge ${tempoDisplay('red')} (abonnement ${DEFAULTS.tempo.sub} €/mois)\n` +
+      `Total Charge'Heures: HP ${((DEFAULTS.totalChargeHeures||{}).php||'-')} €/kWh — HC ${((DEFAULTS.totalChargeHeures||{}).phc||'-')} €/kWh — HSC ${((DEFAULTS.totalChargeHeures||{}).phsc||'-')} €/kWh (HP range ${((DEFAULTS.totalChargeHeures||{}).hpRange||'-')}, HC range ${((DEFAULTS.totalChargeHeures||{}).hcRange||'-')}, HSC range ${((DEFAULTS.totalChargeHeures||{}).hscRange||'-')}, abonnement ${((DEFAULTS.totalChargeHeures||{}).sub||'-')} €/mois)\n` +
+      `Prix injection (revenu export): ${DEFAULTS.injectionPrice} €/kWh`;
+    el.textContent = txt;
+  }
+}
+
+/**
+ * Update injection price display
+ * @param {Object} DEFAULTS - Tariff defaults object
+ */
+export function updateInjectionDisplay(DEFAULTS) {
+  const injEl = document.getElementById('price-injection-display');
+  if (!injEl) return;
+  const p = Number(DEFAULTS.injectionPrice) || 0;
+  if (p <= 0) {
+    injEl.classList.add('hidden');
+    injEl.textContent = '';
+  } else {
+    injEl.classList.remove('hidden');
+    injEl.textContent = `Prix injection (revenu export): ${p} €/kWh`;
+  }
+}

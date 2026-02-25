@@ -183,3 +183,30 @@ export function applyPvReduction(records, selfConsumedKwh) {
   const factor = Math.max(0, (total - selfConsumedKwh)) / total;
   return records.map((rec) => ({ ...rec, valeur: (Number(rec.valeur) || 0) * factor }));
 }
+
+/**
+ * Subscription pricing grid (€/day) for different tariffs and power levels
+ */
+export const SUBSCRIPTION_GRID = {
+  base: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
+  hphc: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
+  tempo: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 }
+};
+
+/**
+ * Get subscription cost for a given tariff type and power level
+ * @param {string} type - Tariff type: 'base', 'hphc', or 'tempo'
+ * @param {number} kva - Power level in kVA
+ * @returns {number} Subscription cost in €/day
+ */
+export function getPriceForPower(type, kva) {
+  const grid = SUBSCRIPTION_GRID[type];
+  if (!grid) return 0;
+  if (grid[kva]) return grid[kva];
+  const avail = Object.keys(grid)
+    .map(Number)
+    .sort((a, b) => a - b);
+  const upper = avail.find((p) => p >= kva);
+  if (upper) return grid[upper];
+  return grid[avail[avail.length - 1]] || 0;
+}

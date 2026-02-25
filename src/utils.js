@@ -86,3 +86,45 @@ export function normalizeHcRange(str) {
   }
   return out.join(';');
 }
+
+/**
+ * Get localStorage key with app prefix
+ * @param {string} key - Base key name
+ * @returns {string} Prefixed storage key
+ */
+export function storageKey(key) {
+  return `comparatifElec.${key}`;
+}
+
+/**
+ * Save a form element value to localStorage
+ * @param {string} id - Element ID
+ */
+export function saveSetting(id) {
+  try {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const val = el.type === 'checkbox' ? el.checked : el.value;
+    localStorage.setItem(storageKey(id), JSON.stringify(val));
+  } catch (err) {
+    // ignore
+  }
+}
+
+/**
+ * Load a form element value from localStorage
+ * @param {string} id - Element ID
+ */
+export function loadSetting(id) {
+  try {
+    const raw = localStorage.getItem(storageKey(id));
+    if (raw === null) return;
+    const parsed = JSON.parse(raw);
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = parsed;
+    else el.value = parsed;
+  } catch (err) {
+    // ignore
+  }
+}

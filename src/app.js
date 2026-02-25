@@ -1,4 +1,4 @@
-import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr, normalizeHcRange } from './utils.js';
+import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr, normalizeHcRange, storageKey, saveSetting, loadSetting } from './utils.js';
 import { appState } from './state.js';
 import {
   computeCostBase,
@@ -6,7 +6,9 @@ import {
   computeCostTotalCharge,
   computeCostTempo,
   computeCostTempoOptimized,
-  applyPvReduction
+  applyPvReduction,
+  getPriceForPower,
+  SUBSCRIPTION_GRID
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 import {
@@ -27,7 +29,7 @@ import {
 } from './tempoCalendar.js';
 import * as chartRenderer from './chartRenderer.js';
 import { parseMultipleFiles, deduplicateRecords, sortRecordsByDate } from './fileHandler.js';
-import { initializeUIListeners } from './uiManager.js';
+import { initializeUIListeners, populateDefaultsDisplay as populateDefaultsDisplayUI, updateInjectionDisplay as updateInjectionDisplayUI } from './uiManager.js';
 import {
   computeHourlyStats,
   computeCostWithProfile,
@@ -203,23 +205,7 @@ DEFAULTS.monthlySolarWeights = (function normalizeWeights() {
 
 appState.setState({ tariffs: DEFAULTS }, 'TARIFFS_DEFAULTS');
 
-const SUBSCRIPTION_GRID = {
-  base: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
-  hphc: { 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
-  tempo: { 6: 15.59, 9: 19.38, 12: 23.07, 15: 26.47, 18: 30.04, 30: 44.73, 36: 52.42 }
-};
-
-function getPriceForPower(type, kva) {
-  const grid = SUBSCRIPTION_GRID[type];
-  if (!grid) return 0;
-  if (grid[kva]) return grid[kva];
-  const avail = Object.keys(grid)
-    .map(Number)
-    .sort((a, b) => a - b);
-  const upper = avail.find((p) => p >= kva);
-  if (upper) return grid[upper];
-  return grid[avail[avail.length - 1]] || 0;
-}
+// getPriceForPower and SUBSCRIPTION_GRID now imported from tariffEngine.js
 
 function updateSubscriptionDefault(kva) {
   if (!kva) return;
@@ -1179,34 +1165,7 @@ const SETTINGS_KEYS = [
   'param-sub-tch'
 ];
 
-function storageKey(key) {
-  return `comparatifElec.${key}`;
-}
-
-function saveSetting(id) {
-  try {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const val = el.type === 'checkbox' ? el.checked : el.value;
-    localStorage.setItem(storageKey(id), JSON.stringify(val));
-  } catch (err) {
-    // ignore
-  }
-}
-
-function loadSetting(id) {
-  try {
-    const raw = localStorage.getItem(storageKey(id));
-    if (raw === null) return;
-    const parsed = JSON.parse(raw);
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (el.type === 'checkbox') el.checked = parsed;
-    else el.value = parsed;
-  } catch (err) {
-    // ignore
-  }
-}
+// storageKey, saveSetting, loadSetting now imported from utils.js
 
 for (const key of SETTINGS_KEYS) loadSetting(key);
 for (const key of SETTINGS_KEYS) {
@@ -1380,42 +1339,16 @@ function applyTotalChargeHeuresInputs() {
   });
 })();
 
+// populateDefaultsDisplay and updateInjectionDisplay now in uiManager.js
 function populateDefaultsDisplay() {
-  const el = document.getElementById('defaults-display');
-  if (el) {
-    const tempoDisplay = (color) => {
-      const value = DEFAULTS.tempo[color];
-      if (!value) return '-';
-      if (typeof value === 'object') return `HP ${value.hp} €/kWh — HC ${value.hc} €/kWh`;
-      return `${value} €/kWh`;
-    };
-    const txt =
-      `Base: ${DEFAULTS.priceBase} €/kWh (abonnement ${DEFAULTS.subBase} €/mois)\n` +
-      `HP/HC: HP ${DEFAULTS.hp.php} €/kWh — HC ${DEFAULTS.hp.phc} €/kWh (HC range ${DEFAULTS.hp.hcRange}, abonnement ${DEFAULTS.hp.sub} €/mois)\n` +
-        `Tempo: Bleu ${tempoDisplay('blue')} — Blanc ${tempoDisplay('white')} — Rouge ${tempoDisplay('red')} (abonnement ${DEFAULTS.tempo.sub} €/mois)\n` +
-        `Total Charge'Heures: HP ${((DEFAULTS.totalChargeHeures||{}).php||'-')} €/kWh — HC ${((DEFAULTS.totalChargeHeures||{}).phc||'-')} €/kWh — HSC ${((DEFAULTS.totalChargeHeures||{}).phsc||'-')} €/kWh (HP range ${((DEFAULTS.totalChargeHeures||{}).hpRange||'-')}, HC range ${((DEFAULTS.totalChargeHeures||{}).hcRange||'-')}, HSC range ${((DEFAULTS.totalChargeHeures||{}).hscRange||'-')}, abonnement ${((DEFAULTS.totalChargeHeures||{}).sub||'-')} €/mois)\n` +
-        `Prix injection (revenu export): ${DEFAULTS.injectionPrice} €/kWh`;
-    el.textContent = txt;
-  }
+  populateDefaultsDisplayUI(DEFAULTS);
+}
+
+function updateInjectionDisplay() {
+  updateInjectionDisplayUI(DEFAULTS);
 }
 
 populateDefaultsDisplay();
-
-// Also update a dedicated injection price display if present
-function updateInjectionDisplay() {
-  const injEl = document.getElementById('price-injection-display');
-  if (!injEl) return;
-  const p = Number(DEFAULTS.injectionPrice) || 0;
-  if (p <= 0) {
-    injEl.classList.add('hidden');
-    injEl.textContent = '';
-  } else {
-    injEl.classList.remove('hidden');
-    injEl.textContent = `Prix injection (revenu export): ${p} €/kWh`;
-  }
-}
-
-updateInjectionDisplay();
 
 async function triggerFullRecalculation() {
   const files = fileInput && fileInput.files;
