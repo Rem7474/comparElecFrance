@@ -75,57 +75,6 @@ export function extractPvParams() {
   };
 }
 
-/**
- * Parallelize independent cost calculations
- * Instead of sequential, run them concurrently
- * @param {Array} records - Data records
- * @param {Object} DEFAULTS - Tariff defaults
- * @param {Object} functions - {computeCostWithProfile, computeCostTempo, computeCostTempoOptimized, computeCostTotalCharge}
- * @returns {Promise<Object>} Costs by tariff
- */
-export async function parallelizeCostCalculations(records, DEFAULTS, functions) {
-  const { computeCostWithProfile, computeCostTempo, computeCostTempoOptimized, computeCostTotalCharge } = functions;
-  
-  // If cached, return immediately
-  const paramHash = generateParamHash(records, null);
-  if (calculationCache.costs && calculationCache.fileHash === paramHash) {
-    return calculationCache.costs;
-  }
-
-  // Prepare shared data once
-  const perHourAnnual = extractPerHourAnnual(records);
-  const priceBase = Number(DEFAULTS.priceBase) || 0.18;
-  const hpParams = {
-    mode: 'hp-hc',
-    php: Number(DEFAULTS.hp.php) || 0.2,
-    phc: Number(DEFAULTS.hp.phc) || 0.12,
-    hcRange: DEFAULTS.hp.hcRange || '22-06'
-  };
-
-  // Run all 4 cost calculations in parallel (they're independent)
-  const [baseCost, hpCost, tempoCost, tempoOptCost, tchCost] = await Promise.all([
-    Promise.resolve(computeCostWithProfile(perHourAnnual, priceBase, { mode: 'base' })),
-    Promise.resolve(computeCostWithProfile(perHourAnnual, priceBase, hpParams)),
-    Promise.resolve(computeCostTempo(records, null, DEFAULTS.tempo)), // tempoDayMap passed separately
-    Promise.resolve(computeCostTempoOptimized(records, null, DEFAULTS.tempo)),
-    Promise.resolve(computeCostTotalCharge(records, DEFAULTS.totalChargeHeures))
-  ]);
-
-  const costs = {
-    perHourAnnual,
-    base: baseCost,
-    hphc: hpCost,
-    tempo: tempoCost,
-    tempoOpt: tempoOptCost,
-    tch: tchCost
-  };
-
-  // Cache the result
-  calculationCache.fileHash = paramHash;
-  calculationCache.costs = costs;
-
-  return costs;
-}
 
 /**
  * Extract hourly aggregation from records (done once instead of repeated)
@@ -141,38 +90,6 @@ export function extractPerHourAnnual(records) {
   return perHour;
 }
 
-/**
- * Compute PV effect once and reuse in multiple functions
- * Caches result based on pvParams hash
- * @param {Array} records - Data records
- * @param {Object} pvParams - {kwp, region, standbyW, exportPrice}
- * @param {Function} simulatePVEffect - Simulation function
- * @param {Array} monthlySolarWeights - Monthly weights
- * @returns {Promise<Object>} PV simulation result
- */
-export async function getCachedPVSimulation(records, pvParams, simulatePVEffect, monthlySolarWeights) {
-  const paramHash = `${pvParams.kwp}:${pvParams.region}:${pvParams.standbyW}`;
-  
-  if (calculationCache.pvParams === paramHash && calculationCache.simulation) {
-    return calculationCache.simulation;
-  }
-
-  // Calculate annual production once
-  const { pvYieldPerKwp } = await import('./pvSimulation.js');
-  const annualProduction = pvParams.kwp * pvYieldPerKwp(pvParams.region);
-
-  const pvSim = simulatePVEffect(records, annualProduction, pvParams.exportPrice, pvParams.standbyW, monthlySolarWeights);
-
-  // Cache it
-  calculationCache.pvParams = paramHash;
-  calculationCache.simulation = {
-    ...pvSim,
-    annualProduction,
-    installCost: calculateInstallCost(pvParams.kwp)
-  };
-
-  return calculationCache.simulation;
-}
 
 /**
  * Calculate PV installation cost based on system size
@@ -360,18 +277,4 @@ function addNoPvTableCells(tr, row) {
   const diffCell = document.createElement('td');
   diffCell.style.fontWeight = 'bold';
   tr.appendChild(diffCell);
-}
-
-/**
- * Determine which workflow to execute based on changes
- * @param {string} changeType - 'file', 'pv', 'tariff'
- * @returns {Object} Workflow to execute
- */
-export function determineWorkflow(changeType) {
-  return {
-    analyzeFile: changeType === 'file',
-    compareOffers: changeType === 'file' || changeType === 'tariff',
-    renderBreakdown: changeType === 'file' || changeType === 'tariff' || changeType === 'pv',
-    runPvSim: changeType === 'file' || changeType === 'pv'
-  };
 }
