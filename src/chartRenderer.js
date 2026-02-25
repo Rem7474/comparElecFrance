@@ -81,7 +81,7 @@ export function renderHourlyChart(stats, canvasElement) {
   destroyChart('hourly');
   
   const ctx = canvasElement.getContext('2d');
-  const avg = stats.avg || stats.hourly || [];
+  const avg = stats.hourly || [];
   const min = stats.min || [];
   const max = stats.max || [];
   const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`);
