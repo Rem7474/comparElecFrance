@@ -62,3 +62,27 @@ export function monthKeyFromDateStr(dateStr) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   return `${y}-${m}`;
 }
+
+/**
+ * Normalize HC range string format
+ * @param {string} str - Raw HC range string
+ * @returns {string|null} Normalized HC range or null if invalid
+ */
+export function normalizeHcRange(str) {
+  const raw = String(str || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(';').map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    const match = part.match(/^\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*-\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*$/);
+    if (!match) return null;
+    const sh = String(match[1]).padStart(2, '0');
+    const sm = match[2] != null ? String(match[2]).padStart(2, '0') : null;
+    const eh = String(match[3]).padStart(2, '0');
+    const em = match[4] != null ? String(match[4]).padStart(2, '0') : null;
+    const startToken = sm != null ? `${sh}:${sm}` : `${sh}`;
+    const endToken = em != null ? `${eh}:${em}` : `${eh}`;
+    out.push(`${startToken}-${endToken}`);
+  }
+  return out.join(';');
+}

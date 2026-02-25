@@ -1,4 +1,4 @@
-import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr } from './utils.js';
+import { formatNumber, fmt, isoDateRange, isHourHC, monthKeyFromDateStr, normalizeHcRange } from './utils.js';
 import { appState } from './state.js';
 import {
   computeCostBase,
@@ -14,7 +14,16 @@ import {
   fetchTempoFromApi,
   buildFinalTempoMap,
   loadStoredTempoMap,
-  saveStoredTempoMap
+  saveStoredTempoMap,
+  tempoStorageKey,
+  showTempoLoading,
+  updateTempoLoading,
+  hideTempoLoading,
+  mapColorToHex,
+  getRepresentativePriceForEntry,
+  createTooltip,
+  renderTempoCalendarGraph,
+  ensureTempoDayMap
 } from './tempoCalendar.js';
 import * as chartRenderer from './chartRenderer.js';
 import { parseMultipleFiles, deduplicateRecords, sortRecordsByDate } from './fileHandler.js';
@@ -255,30 +264,7 @@ function appendLog(el, msg) {
   el.textContent = (el.textContent ? `${el.textContent}\n` : '') + msg;
 }
 
-function showTempoLoading(total) {
-  if (!tempoLoading.container) return;
-  tempoLoading.total = total || 0;
-  tempoLoading.done = 0;
-  tempoLoading.container.style.display = 'block';
-  if (tempoLoading.fill) tempoLoading.fill.style.width = '0%';
-  if (tempoLoading.text) {
-    tempoLoading.text.textContent = total > 0 ? `Chargement des jours Tempo… 0/${total}` : 'Chargement des jours Tempo…';
-  }
-}
-
-function updateTempoLoading(done, total) {
-  if (!tempoLoading.container) return;
-  tempoLoading.done = done;
-  tempoLoading.total = total || tempoLoading.total;
-  const pct = tempoLoading.total > 0 ? Math.min(100, Math.round((done / tempoLoading.total) * 100)) : 0;
-  if (tempoLoading.fill) tempoLoading.fill.style.width = `${pct}%`;
-  if (tempoLoading.text) tempoLoading.text.textContent = `Chargement des jours Tempo… ${done}/${tempoLoading.total}`;
-}
-
-function hideTempoLoading() {
-  if (!tempoLoading.container) return;
-  tempoLoading.container.style.display = 'none';
-}
+// Tempo loading functions now imported from tempoCalendar.js
 
 const analysisLog = document.getElementById('analysis-log');
 const hourlyCanvas = document.getElementById('hourly-chart');
@@ -425,10 +411,13 @@ export async function analyzeFilesNow(records) {
 
   appendAnalysisLog('Analyse terminée.');
   try {
-    const tempoMap = await ensureTempoDayMap(records);
+    const tempoMap = await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
+      if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+      if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+    });
     try {
-      const dailyCostMap = computeDailyTempoCostMap(records, tempoMap);
-      renderTempoCalendarGraph(tempoMap, dailyCostMap);
+      const dailyCostMap = computeDailyTempoCostMap(records, tempoMap, DEFAULTS.tempo);
+      renderTempoCalendarGraph(tempoMap, dailyCostMap, DEFAULTS);
     } catch (err) {
       // ignore
     }
@@ -1171,219 +1160,7 @@ export async function compareOffers(records) {
   }
 }
 
-function tempoStorageKey() {
-  return (DEFAULTS.tempoApi && DEFAULTS.tempoApi.storageKey) || 'comparatifElec.tempoDayMap';
-}
-
-export async function ensureTempoDayMap(records) {
-  let minD = null;
-  let maxD = null;
-  if (records && records.length) {
-    for (const rec of records) {
-      const date = new Date((rec.dateDebut || '').slice(0, 10));
-      if (Number.isNaN(date.getTime())) continue;
-      if (!minD || date < minD) minD = date;
-      if (!maxD || date > maxD) maxD = date;
-    }
-  }
-  if (!minD) {
-    const year = new Date().getFullYear();
-    minD = new Date(year, 0, 1);
-    maxD = new Date(year, 11, 31);
-  }
-
-  const genMap = generateTempoCalendar(records);
-  const stored = loadStoredTempoMap(tempoStorageKey());
-  const initial = { ...genMap, ...stored };
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const apiEnd = maxD < today ? maxD : today;
-
-  let totalToFetch = 0;
-  const storedForCount = loadStoredTempoMap(tempoStorageKey());
-  for (let d = new Date(minD); d <= apiEnd; d.setDate(d.getDate() + 1)) {
-    const ds = d.toISOString().slice(0, 10);
-    if (!storedForCount[ds]) totalToFetch += 1;
-  }
-
-  let done = 0;
-  let apiMap = {};
-  try {
-    if (DEFAULTS.tempoApi && DEFAULTS.tempoApi.enabled && totalToFetch > 0) {
-      showTempoLoading(totalToFetch);
-    }
-    apiMap = await fetchTempoFromApi(minD, apiEnd, (inc) => {
-      done += Number(inc) || 0;
-      updateTempoLoading(done, totalToFetch);
-    }, DEFAULTS.tempoApi);
-  } catch (err) {
-    apiMap = {};
-  } finally {
-    hideTempoLoading();
-  }
-
-  if (apiMap && Object.keys(apiMap).length) {
-    const merged = { ...stored, ...apiMap };
-    saveStoredTempoMap(merged, tempoStorageKey());
-  }
-
-  const finalMap = buildFinalTempoMap(records, stored, apiMap, genMap);
-  appState.setState({ tempoDayMap: finalMap }, 'TEMPO_MAP_LOADED');
-
-  const src = {};
-  for (const key of Object.keys(genMap)) src[key] = 'gen';
-  for (const key of Object.keys(stored || {})) src[key] = 'store';
-  for (const key of Object.keys(apiMap || {})) src[key] = 'api';
-  appState.setState({ tempoSourceMap: src }, 'TEMPO_SOURCES_UPDATED');
-
-  return finalMap;
-}
-
-function mapColorToHex(col) {
-  const c = String(col || '').toUpperCase();
-  if (c === 'R') return '#e15759';
-  if (c === 'W') return '#59a14f';
-  if (c === 'B') return '#4e79a7';
-  return '#999999';
-}
-
-function getRepresentativePriceForEntry(entry) {
-  let rates = null;
-  if (!entry) return Number(DEFAULTS.priceBase || 0);
-  if (typeof entry === 'string') {
-    const letter = entry.toUpperCase();
-    const key = letter === 'B' ? 'blue' : letter === 'W' ? 'white' : letter === 'R' ? 'red' : entry.toLowerCase();
-    const def = DEFAULTS.tempo && DEFAULTS.tempo[key];
-    if (def && typeof def === 'object') rates = { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
-    else rates = { hp: Number(def) || 0, hc: Number(def) || 0 };
-  } else if (entry && typeof entry === 'object') {
-    if (entry.rates) rates = { hp: Number(entry.rates.hp) || 0, hc: Number(entry.rates.hc) || 0 };
-    else if (entry.color) {
-      const letter = String(entry.color || '').toUpperCase();
-      const key = letter === 'B' ? 'blue' : letter === 'W' ? 'white' : letter === 'R' ? 'red' : String(entry.color || '').toLowerCase();
-      const def = DEFAULTS.tempo && DEFAULTS.tempo[key];
-      if (def) rates = { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
-    }
-  }
-  if (!rates) return Number(DEFAULTS.priceBase || 0);
-  return (Number(rates.hp) + Number(rates.hc)) / 2;
-}
-
-function createTooltip() {
-  let tooltip = document.getElementById('tempo-tooltip');
-  if (tooltip) return tooltip;
-  tooltip = document.createElement('div');
-  tooltip.id = 'tempo-tooltip';
-  tooltip.className = 'tempo-tooltip';
-  document.body.appendChild(tooltip);
-  return tooltip;
-}
-
-function renderTempoCalendarGraph(dayMap, dailyCostMap) {
-  const container = document.getElementById('tempo-calendar-graph');
-  if (!container) {
-    console.warn('tempo-calendar-graph container not found');
-    return;
-  }
-  container.innerHTML = '';
-  const showError = (msg) => {
-    container.innerHTML = `<div class="alert alert-error">Erreur affichage calendrier: ${String(msg)}</div>`;
-  };
-  try {
-    const keys = Object.keys(dayMap).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort();
-    if (!keys.length) {
-      container.textContent = 'Aucun jour dans le calendrier.';
-      return;
-    }
-    const start = new Date(keys[0]);
-    const end = new Date(keys[keys.length - 1]);
-    const tooltip = createTooltip();
-
-    let cur = new Date(start.getFullYear(), start.getMonth(), 1);
-    while (cur <= end) {
-      const monthStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
-      const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
-      const monthLabel = monthStart.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
-      const monthBox = document.createElement('div');
-      monthBox.className = 'tempo-month';
-      const h = document.createElement('h5');
-      h.textContent = monthLabel;
-      monthBox.appendChild(h);
-      const weekdays = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-      const wk = document.createElement('div');
-      wk.className = 'tempo-weekdays';
-      for (const w of weekdays) {
-        const el = document.createElement('div');
-        el.className = 'text-center';
-        el.textContent = w;
-        wk.appendChild(el);
-      }
-      monthBox.appendChild(wk);
-      const grid = document.createElement('div');
-      grid.className = 'tempo-grid';
-      const firstDow = (new Date(monthStart).getDay() + 6) % 7;
-      for (let i = 0; i < firstDow; i += 1) {
-        const empty = document.createElement('div');
-        empty.className = 'tempo-day empty';
-        grid.appendChild(empty);
-      }
-
-      const mDays = isoDateRange(monthStart, monthEnd);
-      for (const dStr of mDays) {
-        const dateObj = new Date(dStr);
-        if (dateObj < start || dateObj > end) {
-          const dim = document.createElement('div');
-          dim.className = 'tempo-day dim';
-          dim.textContent = dateObj.getDate();
-          grid.appendChild(dim);
-          continue;
-        }
-        const entry = dayMap[dStr] || 'B';
-        const colorKey = typeof entry === 'string' ? entry.toUpperCase() : (entry && entry.color ? entry.color.toUpperCase() : 'B');
-        const hex = mapColorToHex(colorKey);
-        const dayEl = document.createElement('div');
-        dayEl.className = 'tempo-day';
-        dayEl.style.background = hex;
-        dayEl.textContent = String(dateObj.getDate());
-        const price = getRepresentativePriceForEntry(entry);
-        dayEl.addEventListener('mouseenter', (ev) => {
-          tooltip.style.display = 'block';
-          const info = dailyCostMap && dailyCostMap[dStr];
-          const costTxt = info && typeof info.cost === 'number' ? `${info.cost.toFixed(2)} €` : '-';
-          const energyTxt = info && typeof info.energy === 'number' ? `${info.energy.toFixed(2)} kWh` : '-';
-          const hpCostTxt = info && typeof info.hpCost === 'number' ? `${info.hpCost.toFixed(2)} €` : '-';
-          const hcCostTxt = info && typeof info.hcCost === 'number' ? `${info.hcCost.toFixed(2)} €` : '-';
-          const hpEnergyTxt = info && typeof info.hpEnergy === 'number' ? `${info.hpEnergy.toFixed(2)} kWh` : '-';
-          const hcEnergyTxt = info && typeof info.hcEnergy === 'number' ? `${info.hcEnergy.toFixed(2)} kWh` : '-';
-          tooltip.innerHTML = `
-            <strong>${dStr}</strong><br/>
-            Couleur: ${colorKey}<br/>
-            Prix rep.: ${price.toFixed(4)} €/kWh<br/>
-            Coût jour: ${costTxt} — Conso jour: ${energyTxt}<br/>
-            HP: ${hpCostTxt} / ${hpEnergyTxt} &nbsp;|&nbsp; HC: ${hcCostTxt} / ${hcEnergyTxt}
-          `;
-        });
-        dayEl.addEventListener('mousemove', (ev) => {
-          const pad = 12;
-          tooltip.style.left = `${ev.clientX + pad}px`;
-          tooltip.style.top = `${ev.clientY + pad}px`;
-        });
-        dayEl.addEventListener('mouseleave', () => {
-          tooltip.style.display = 'none';
-        });
-        grid.appendChild(dayEl);
-      }
-      monthBox.appendChild(grid);
-      container.appendChild(monthBox);
-      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-    }
-  } catch (err) {
-    console.error('renderTempoCalendarGraph failed', err);
-    showError(err && err.message ? err.message : err);
-  }
-}
-
+// Tempo functions (tempoStorageKey, ensureTempoDayMap, mapColorToHex, getRepresentativePriceForEntry, createTooltip, renderTempoCalendarGraph) now imported from tempoCalendar.js
 // computeDailyTempoCostMap now imported from analysisEngine.js
 
 const SETTINGS_KEYS = [
@@ -1439,24 +1216,7 @@ for (const key of SETTINGS_KEYS) {
   el.addEventListener('input', () => saveSetting(key));
 }
 
-function normalizeHcRange(str) {
-  const raw = String(str || '').trim();
-  if (!raw) return null;
-  const parts = raw.split(';').map((s) => s.trim()).filter(Boolean);
-  const out = [];
-  for (const part of parts) {
-    const match = part.match(/^\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*-\s*([0-1]?\d|2[0-3])(?::([0-5]?\d))?\s*$/);
-    if (!match) return null;
-    const sh = String(match[1]).padStart(2, '0');
-    const sm = match[2] != null ? String(match[2]).padStart(2, '0') : null;
-    const eh = String(match[3]).padStart(2, '0');
-    const em = match[4] != null ? String(match[4]).padStart(2, '0') : null;
-    const startToken = sm != null ? `${sh}:${sm}` : `${sh}`;
-    const endToken = em != null ? `${eh}:${em}` : `${eh}`;
-    out.push(`${startToken}-${endToken}`);
-  }
-  return out.join(';');
-}
+// normalizeHcRange now imported from utils.js
 
 function applyHcRangeFromInput() {
   const el = document.getElementById('param-hphc-hcRange');
@@ -1662,7 +1422,10 @@ async function triggerFullRecalculation() {
   if (!files || files.length === 0) return;
   const records = await getRecordsFromCache(files);
   if (!records || records.length === 0) return;
-  await ensureTempoDayMap(records);
+  await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
+    if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+    if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+  });
   await compareOffers(records);
   await renderMonthlyBreakdown(records);
   await runPvSimulation(records);
@@ -1901,6 +1664,17 @@ async function loadTariffs() {
 
 loadTariffs();
 
+/**
+ * Wrapper function for ensureTempoDayMap to provide all dependencies
+ * This makes it easier to use from uiManager without passing all parameters
+ */
+async function ensureTempoDayMapWrapper(records) {
+  return await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
+    if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+    if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+  });
+}
+
 // Initialize UI listeners after all functions are defined
 initializeUIListeners(DEFAULTS, {
   compareOffers,
@@ -1908,5 +1682,5 @@ initializeUIListeners(DEFAULTS, {
   renderMonthlyBreakdown,
   analyzeFilesNow,
   getRecordsFromCache,
-  ensureTempoDayMap
+  ensureTempoDayMap: ensureTempoDayMapWrapper
 });
