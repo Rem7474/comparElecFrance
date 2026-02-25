@@ -133,12 +133,16 @@ export function renderHpHcPie(records, hcRange, canvasElement) {
       hpTotal += value;
     }
   }
+
+  const total = hpTotal + hcTotal;
+  const hpPct = total > 0 ? Math.round((hpTotal / total) * 1000) / 10 : 0;
+  const hcPct = total > 0 ? Math.round((hcTotal / total) * 1000) / 10 : 0;
   
   const ctx = canvasElement.getContext('2d');
   const chart = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['Heures Pleines', 'Heures Creuses'],
+      labels: [`Heures Pleines (${hpPct}%)`, `Heures Creuses (${hcPct}%)`],
       datasets: [
         {
           data: [hpTotal, hcTotal],
