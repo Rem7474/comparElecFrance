@@ -224,7 +224,7 @@ DEFAULTS.monthlySolarWeights = (function normalizeWeights() {
   return DEFAULTS.monthlySolarWeightsRaw.map((v) => v / sum);
 })();
 
-appState.tariffs = DEFAULTS;
+appState.setState({ tariffs: DEFAULTS }, 'TARIFFS_DEFAULTS');
 
 const SUBSCRIPTION_GRID = {
   base: { 3: 12.03, 6: 15.65, 9: 19.56, 12: 23.32, 15: 26.84, 18: 30.49, 24: 38.24, 30: 45.37, 36: 52.54 },
@@ -264,7 +264,7 @@ function updateSubscriptionDefault(kva) {
   if (inpHp) inpHp.value = hp.toFixed(2);
   if (inpTempo) inpTempo.value = tempo.toFixed(2);
 
-  appState.currentKva = safeKva;
+  appState.setState({ currentKva: safeKva }, 'POWER_UPDATED');
   populateDefaultsDisplay();
 }
 
@@ -2097,7 +2097,7 @@ async function loadTariffs() {
       console.error('Tariff parse failed', name, err);
     }
   }
-  appState.tariffs = DEFAULTS;
+  appState.setState({ tariffs: DEFAULTS }, 'TARIFFS_LOADED');
   populateDefaultsDisplay();
 }
 
