@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>ComparatifElec - Analyse & Simulation</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style-improvements.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
@@ -24,6 +25,18 @@
         🌙 / ☀️
       </button>
     </header>
+
+    <!-- Notifications Container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-container hidden">
+      <div class="spinner spinner-large"></div>
+      <p id="loading-message">Chargement en cours...</p>
+      <div id="loading-progress" style="width: 200px; height: 8px; background: var(--bg-hover); border-radius: 4px; overflow: hidden;">
+        <div id="loading-progress-bar" style="height: 100%; background: var(--primary); width: 0%; transition: width 0.2s;"></div>
+      </div>
+    </div>
 
     <!-- Step 1 & 2: Data Import -->
     <section id="step-1-panel" class="card">

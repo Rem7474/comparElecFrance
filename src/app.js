@@ -16,6 +16,8 @@ import {
   loadStoredTempoMap,
   saveStoredTempoMap
 } from './tempoCalendar.js';
+import * as chartRenderer from './chartRenderer.js';
+import { parseMultipleFiles, deduplicateRecords, sortRecordsByDate } from './fileHandler.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -326,67 +328,55 @@ function buildFileCacheKey(fileList) {
 
 async function parseFilesToRecords(fileList) {
   const records = [];
+  const csvFiles = [];
+  const otherFiles = [];
+
   for (const file of fileList) {
     const name = (file.name || '').toLowerCase();
     appendAnalysisLog(`Lecture: ${file.name}`);
-    try {
-      if (name.endsWith('.json') || file.type.includes('json') || name.endsWith('.txt')) {
-        const txt = await file.text();
-        let json = null;
-        try {
-          json = JSON.parse(txt);
-        } catch (err) {
-          appendAnalysisLog(`${file.name} n\'est pas un JSON valide — ignoré.`);
-          continue;
-        }
-        const donnees = (((json || {}).cons || {}).aggregats || {}).heure && (((json || {}).cons || {}).aggregats || {}).heure.donnees;
-        if (Array.isArray(donnees)) {
-          for (const rec of donnees) {
-            const val = Number(rec.valeur);
-            if (Number.isNaN(val)) continue;
-            records.push({ dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val });
-          }
-        } else {
-          appendAnalysisLog(`Aucune donnée horaire trouvée dans ${file.name}`);
-        }
-      } else if (name.endsWith('.csv') || (file.type && file.type.toLowerCase().includes('csv'))) {
-        const txt = await file.text();
-        try {
-          if (typeof window.csvToEnedisJson !== 'function') throw new Error('convertisseur CSV indisponible');
-          const json = window.csvToEnedisJson(txt);
-          const donnees = (((json || {}).cons || {}).aggregats || {}).heure && (((json || {}).cons || {}).aggregats || {}).heure.donnees;
-          if (Array.isArray(donnees)) {
-            for (const rec of donnees) {
-              const val = Number(rec.valeur);
-              if (Number.isNaN(val)) continue;
-              records.push({ dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val });
-            }
-            appendAnalysisLog(`Converti depuis CSV: ${donnees.length} enregistrements`);
-          } else {
-            appendAnalysisLog(`CSV non reconnu: aucune donnée horaire trouvée dans ${file.name}`);
-          }
-        } catch (err) {
-          appendAnalysisLog(`Erreur conversion CSV (${file.name}): ${err && err.message ? err.message : err}`);
-        }
-      } else {
-        appendAnalysisLog(`${file.name} ignoré (formats supportés: JSON/CSV).`);
-      }
-    } catch (err) {
-      appendAnalysisLog(`Erreur lecture ${file.name}: ${err.message}`);
+    if (name.endsWith('.csv') || (file.type && file.type.toLowerCase().includes('csv'))) {
+      csvFiles.push(file);
+    } else if (name.endsWith('.json') || file.type.includes('json') || name.endsWith('.txt')) {
+      otherFiles.push(file);
+    } else {
+      appendAnalysisLog(`${file.name} ignoré (formats supportés: JSON/CSV).`);
     }
   }
 
-  records.sort((a, b) => new Date(a.dateDebut) - new Date(b.dateDebut));
-  const dedup = [];
-  const seen = new Set();
-  for (const rec of records) {
-    if (rec && rec.dateDebut && !seen.has(rec.dateDebut)) {
-      dedup.push(rec);
-      seen.add(rec.dateDebut);
+  if (otherFiles.length > 0) {
+    try {
+      const parsed = await parseMultipleFiles(otherFiles);
+      records.push(...parsed);
+    } catch (err) {
+      appendAnalysisLog(`Erreur lecture fichiers JSON: ${err && err.message ? err.message : err}`);
     }
   }
-  appendAnalysisLog(`Total enregistrements valides: ${dedup.length}`);
-  return dedup;
+
+  for (const file of csvFiles) {
+    try {
+      const txt = await file.text();
+      if (typeof window.csvToEnedisJson !== 'function') throw new Error('convertisseur CSV indisponible');
+      const json = window.csvToEnedisJson(txt);
+      const donnees = (((json || {}).cons || {}).aggregats || {}).heure && (((json || {}).cons || {}).aggregats || {}).heure.donnees;
+      if (Array.isArray(donnees)) {
+        for (const rec of donnees) {
+          const val = Number(rec.valeur);
+          if (Number.isNaN(val)) continue;
+          records.push({ dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val });
+        }
+        appendAnalysisLog(`Converti depuis CSV: ${donnees.length} enregistrements`);
+      } else {
+        appendAnalysisLog(`CSV non reconnu: aucune donnée horaire trouvée dans ${file.name}`);
+      }
+    } catch (err) {
+      appendAnalysisLog(`Erreur conversion CSV (${file.name}): ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  const dedup = deduplicateRecords(records);
+  const sorted = sortRecordsByDate(dedup);
+  appendAnalysisLog(`Total enregistrements valides: ${sorted.length}`);
+  return sorted;
 }
 
 async function getRecordsFromCache(fileList) {
@@ -396,8 +386,7 @@ async function getRecordsFromCache(fileList) {
     return appState.records;
   }
   const records = await parseFilesToRecords(fileList);
-  appState.records = records;
-  appState.recordsCacheKey = key;
+  appState.setState({ records, recordsCacheKey: key }, 'FILES_LOADED');
   return records;
 }
 
@@ -435,76 +424,15 @@ function computeHourlyStats(records) {
 }
 
 function renderHourlyChart(stats) {
-  const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}h`);
-  const ctx = hourlyCanvas.getContext('2d');
-  if (hourlyChart) {
-    hourlyChart.destroy();
-    hourlyChart = null;
-  }
-  hourlyChart = new Chart(ctx, {
-    data: {
-      labels,
-      datasets: [
-        { type: 'bar', label: 'Moyenne (kWh)', data: stats.avg, backgroundColor: 'rgba(54,162,235,0.6)', yAxisID: 'y' },
-        { type: 'line', label: 'Min (kWh)', data: stats.min, borderColor: 'rgba(75,192,192,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' },
-        { type: 'line', label: 'Max (kWh)', data: stats.max, borderColor: 'rgba(255,99,132,0.9)', borderWidth: 2, fill: false, yAxisID: 'y' }
-      ]
-    },
-    options: {
-      responsive: true,
-      interaction: { mode: 'index', intersect: false },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } }
-    }
-  });
+  chartRenderer.renderHourlyChart(stats, hourlyCanvas);
 }
 
 function renderHpHcPie(records) {
   try {
     const hcRange = (DEFAULTS.hp && DEFAULTS.hp.hcRange) || '22-06';
-    let hpTotal = 0;
-    let hcTotal = 0;
-    for (const rec of records) {
-      const value = Number(rec.valeur) || 0;
-      const hour = new Date(rec.dateDebut).getHours();
-      if (isHourHC(hour, hcRange)) hcTotal += value;
-      else hpTotal += value;
-    }
     const canvas = document.getElementById('hp-hc-pie');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (window.hpHcPieChart) {
-      window.hpHcPieChart.destroy();
-      window.hpHcPieChart = null;
-    }
-    const total = hpTotal + hcTotal;
-    const hpPct = total > 0 ? Math.round((hpTotal / total) * 1000) / 10 : 0;
-    const hcPct = total > 0 ? Math.round((hcTotal / total) * 1000) / 10 : 0;
-    window.hpHcPieChart = new Chart(ctx, {
-      type: 'pie',
-      data: {
-        labels: [`HP (${hpPct}%)`, `HC (${hcPct}%)`],
-        datasets: [{ data: [hpTotal, hcTotal], backgroundColor: ['#4e79a7', '#f28e2b'] }]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: (chartCtx) => {
-                try {
-                  const val = Number(chartCtx.parsed) || 0;
-                  const tot = (chartCtx.dataset.data || []).reduce((a, b) => a + (Number(b) || 0), 0);
-                  const pct = tot > 0 ? (val / tot) * 100 : 0;
-                  return `${chartCtx.label}: ${formatNumber(val)} kWh (${pct.toFixed(1)}%)`;
-                } catch (err) {
-                  return chartCtx.label;
-                }
-              }
-            }
-          }
-        }
-      }
-    });
+    chartRenderer.renderHpHcPie(records, hcRange, canvas);
   } catch (err) {
     console.warn('Erreur rendu HP/HC pie', err);
   }
@@ -542,7 +470,7 @@ async function analyzeFilesNow(records) {
     }
   }
 
-  appState.detectedKva = recommendedKva;
+  appState.setState({ detectedKva: recommendedKva }, 'POWER_DETECTED');
 
   const kvaInfo = document.getElementById('power-detected-info');
   if (kvaInfo) kvaInfo.textContent = `Max: ${maxPowerKw.toFixed(1)} kW (Standard: ${recommendedKva} kVA)`;
@@ -1223,17 +1151,8 @@ async function compareOffers(records) {
   });
 
   const offersCanvas = document.getElementById('offers-chart');
-  const ctx = offersCanvas && offersCanvas.getContext ? offersCanvas.getContext('2d') : null;
-  if (ctx) {
-    if (window.offersChart) {
-      window.offersChart.destroy();
-      window.offersChart = null;
-    }
-    window.offersChart = new Chart(ctx, {
-      type: 'bar',
-      data: { labels, datasets: [{ label: 'Coût annuel (€)', data: values, backgroundColor: bgColors }] },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
-    });
+  if (offersCanvas) {
+    chartRenderer.renderOffersChart(offers, isPvEnabled, offersCanvas);
   }
 
   appendAnalysisLog('Comparaison terminée.');
