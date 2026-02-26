@@ -8,8 +8,7 @@ import {
   computeCostTempoOptimized,
   applyPvReduction,
   getPriceForPower,
-  SUBSCRIPTION_GRID,
-  parallelComputeAllCosts
+  SUBSCRIPTION_GRID
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 import {
