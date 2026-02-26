@@ -7,6 +7,7 @@ class AppStateManager {
       tariffs: {},
       tempoDayMap: null,
       tempoSourceMap: null,
+      bestOfferId: null,
       detectedKva: null,
       currentKva: 6
     };

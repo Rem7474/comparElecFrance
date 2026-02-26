@@ -483,21 +483,41 @@ export async function renderMonthlyBreakdown(records) {
     tch: Math.max(0, (row.tch.total || 0) - (row.tchPV.total || 0))
   }));
 
+  const { bestOfferId } = appState.getState();
+  const getMonthlyOfferCost = (row, offerId, usePv) => {
+    if (!offerId) return null;
+    switch (offerId) {
+      case 'base':
+        return usePv ? row.basePV.total : row.base.total;
+      case 'hphc':
+        return usePv ? row.hphcPV.total : row.hphc.total;
+      case 'tempo':
+        return usePv ? row.tempoPV.total : row.tempo.total;
+      case 'tempoOpt':
+        return usePv ? row.tempoOptPV.total : row.tempoOpt.total;
+      case 'tch':
+        return usePv ? row.tchPV.total : row.tch.total;
+      default:
+        return null;
+    }
+  };
+
   for (const [index, row] of data.entries()) {
     const sv = monthlySavings[index];
     const tr = document.createElement('tr');
     tr.className = 'row-divider';
     let rowHTML = `<td>${row.month}</td><td>${formatNumber(row.consumption)}</td>`;
     
-    // Calculate the best offer (excluding tempoOpt) for this month
-    const candidates = [
-      { offerId: 'base', costWithPV: isPvEnabled ? row.basePV.total : row.base.total, costNoPV: row.base.total },
-      { offerId: 'tempo', costWithPV: isPvEnabled ? row.tempoPV.total : row.tempo.total, costNoPV: row.tempo.total },
-      { offerId: 'tch', costWithPV: isPvEnabled ? row.tchPV.total : row.tch.total, costNoPV: row.tch.total }
-    ];
-    const bestCandidate = candidates.reduce((a, b) => (a.costWithPV < b.costWithPV ? a : b));
     const hphcCost = isPvEnabled ? row.hphcPV.total : row.hphc.total;
-    const diffVsHphc = hphcCost - bestCandidate.costWithPV;
+    let bestCost = getMonthlyOfferCost(row, bestOfferId, isPvEnabled);
+    if (bestOfferId === 'hphc') bestCost = hphcCost;
+    if (bestCost == null) {
+      const fallbackCosts = ['base', 'tempo', 'tempoOpt', 'tch']
+        .map((id) => getMonthlyOfferCost(row, id, isPvEnabled))
+        .filter((value) => typeof value === 'number');
+      bestCost = fallbackCosts.length ? Math.min(...fallbackCosts) : hphcCost;
+    }
+    const diffVsHphc = hphcCost - bestCost;
     const diffClass = diffVsHphc > 0 ? 'text-success' : '';
     const diffDisplay = diffVsHphc !== 0 ? `${diffVsHphc > 0 ? '-' : '+'}${formatNumber(Math.abs(diffVsHphc))}` : '0';
     
@@ -886,6 +906,8 @@ export async function compareOffers(records) {
   const validBest = sortedByCost.find((o) => o.id !== 'tempoOpt');
   const bestId = validBest ? validBest.id : null;
   const worstOffer = worstByCost || null;
+
+  appState.setState({ bestOfferId: bestId }, 'compareOffers');
 
   // Consistent color mapping based on offer ID, not index
   const getOfferColor = (offerId) => {
