@@ -443,6 +443,18 @@ export async function renderMonthlyBreakdown(records) {
   const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
   const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
   
+  let tempoMap = appState.tempoDayMap;
+  if (!tempoMap || Object.keys(tempoMap).length === 0) {
+    try {
+      tempoMap = await ensureTempoDayMap(recs, tempoLoading, DEFAULTS, (updates) => {
+        if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+        if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+      });
+    } catch (err) {
+      tempoMap = null;
+    }
+  }
+
   const data = computeMonthlyBreakdown(
     recs,
     annualProduction,
@@ -450,7 +462,7 @@ export async function renderMonthlyBreakdown(records) {
     standbyW,
     DEFAULTS.monthlySolarWeights,
     DEFAULTS,
-    appState.tempoDayMap || {}
+    tempoMap || null
   );
   const container = document.getElementById('monthly-results');
   if (!container) return;
@@ -695,6 +707,18 @@ export async function runPvSimulation(records) {
       const annualProduction = pvKwp * pvYieldPerKwp(pvRegion);
       const exportPrice = Number(DEFAULTS.injectionPrice) || 0.06;
 
+      let tempoMap = appState.tempoDayMap;
+      if (!tempoMap || Object.keys(tempoMap).length === 0) {
+        try {
+          tempoMap = await ensureTempoDayMap(recs, tempoLoading, DEFAULTS, (updates) => {
+            if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
+            if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
+          });
+        } catch (err) {
+          tempoMap = null;
+        }
+      }
+
       const monthly = computeMonthlyBreakdown(
         recs,
         annualProduction,
@@ -702,7 +726,7 @@ export async function runPvSimulation(records) {
         standbyW,
         DEFAULTS.monthlySolarWeights,
         DEFAULTS,
-        appState.tempoDayMap || {}
+        tempoMap || null
       );
       const mlabels = monthly.map((m) => m.month);
       const productionSeries = monthly.map((m) => Number(m.monthPV || 0));
