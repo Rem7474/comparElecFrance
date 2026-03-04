@@ -147,14 +147,26 @@ export function renderTariffCards(tariffData, DEFAULTS, container) {
   container.innerHTML = '';
   container.className = 'tariff-cards-grid';
 
-  // Order: Base, HP/HC, Tempo, Total Charge, Injection
-  const tariffOrder = ['base', 'hphc', 'tempo', 'totalCharge', 'injection'];
+  // Preferred display order (other tariffs will be added after)
+  const preferredOrder = ['base', 'hphc', 'tempo', 'tempoOptimized', 'totalCharge', 'octopusEnergy'];
   
-  tariffOrder.forEach((key) => {
+  // Render tariffs in preferred order first
+  preferredOrder.forEach((key) => {
     const tariff = tariffData[key];
     if (tariff && tariff.id !== 'injection') {
       const card = createTariffCard(tariff, DEFAULTS);
       container.appendChild(card);
+    }
+  });
+  
+  // Then render any remaining tariffs not in preferred order (except injection)
+  Object.keys(tariffData).forEach((key) => {
+    if (!preferredOrder.includes(key) && key !== 'injection') {
+      const tariff = tariffData[key];
+      if (tariff) {
+        const card = createTariffCard(tariff, DEFAULTS);
+        container.appendChild(card);
+      }
     }
   });
 
