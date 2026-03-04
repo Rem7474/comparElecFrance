@@ -54,19 +54,19 @@ export function mapTariffToDefaults(tariffJson, DEFAULTS) {
       if (tariffJson.subscriptions) DEFAULTS.subBase = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.subBase;
       return true;
     }
-    if (id === 'hphc' || tariffJson.type === 'two-tier') {
-      if (tariffJson.php != null) DEFAULTS.hp.php = tariffJson.php;
-      if (tariffJson.phc != null) DEFAULTS.hp.phc = tariffJson.phc;
-      if (tariffJson.hcRange) DEFAULTS.hp.hcRange = tariffJson.hcRange;
-      if (tariffJson.subscriptions) DEFAULTS.hp.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.hp.sub;
-      return true;
-    }
     if (id === 'OctopusEnergy' || id === 'octopusEnergy') {
       if (!DEFAULTS.octopusEnergy) DEFAULTS.octopusEnergy = {};
       if (tariffJson.php != null) DEFAULTS.octopusEnergy.php = tariffJson.php;
       if (tariffJson.phc != null) DEFAULTS.octopusEnergy.phc = tariffJson.phc;
       if (tariffJson.hcRange) DEFAULTS.octopusEnergy.hcRange = tariffJson.hcRange;
       if (tariffJson.subscriptions) DEFAULTS.octopusEnergy.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.octopusEnergy.sub;
+      return true;
+    }
+    if (id === 'hphc' || tariffJson.type === 'two-tier') {
+      if (tariffJson.php != null) DEFAULTS.hp.php = tariffJson.php;
+      if (tariffJson.phc != null) DEFAULTS.hp.phc = tariffJson.phc;
+      if (tariffJson.hcRange) DEFAULTS.hp.hcRange = tariffJson.hcRange;
+      if (tariffJson.subscriptions) DEFAULTS.hp.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.hp.sub;
       return true;
     }
     if (id === 'tempo' || tariffJson.type === 'tempo') {

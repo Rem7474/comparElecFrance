@@ -961,7 +961,7 @@ export async function compareOffers(records) {
 
   // Build offers from loaded tariffs (dynamic)
   // Skip tempo, tempoOptimized, and injection (special handling below)
-  const loadedTariffs = appState.loadedTariffs || [];
+  const loadedTariffs = (appState.getState().loadedTariffs || []);
   const skipIds = ['tempo', 'tempoOptimized', 'injection'];
 
   for (const tariffMeta of loadedTariffs) {
