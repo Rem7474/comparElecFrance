@@ -1,0 +1,21 @@
+{
+  "id": "OctopusEnergy",
+  "name": "Octopus Energy",
+  "type": "two-tier",
+  "description": "2 tranches horaires (pleines/creuses)",
+  "php": 0.177655,
+  "phc": 0.137317,
+  "hcRange": "22-06",
+  "subscriptions": {
+    "6": 15.65,
+    "9": 19.56,
+    "12": 23.32,
+    "15": 26.84,
+    "18": 30.49,
+    "24": 38.24,
+    "30": 45.37,
+    "36": 52.54
+  },
+  "color": "#f28e2b",
+  "colorWithPV": "#ffbe7d"
+}
