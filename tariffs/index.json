@@ -2,6 +2,7 @@
   "base.json",
   "hphc.json",
   "tempo.json",
+  "tempoOptimized.json",
   "total-charge-heures.json",
   "octopusEnergy.json",
   "injection.json"

@@ -96,7 +96,7 @@ export function mapTariffToDefaults(tariffJson, DEFAULTS) {
  * @param {Function} log - Optional logging function
  * @returns {Promise<string[]>} Array of tariff file paths
  */
-async function discoverTariffFiles(log) {
+export async function discoverTariffFiles(log) {
   // 1) Prefer an explicit index file if present
   try {
     const idxResp = await fetch('tariffs/index.json', { cache: 'no-cache' });
@@ -140,7 +140,7 @@ async function discoverTariffFiles(log) {
   }
 
   // 3) Fallback to conservative builtin list
-  return ['tariffs/base.json', 'tariffs/hphc.json', 'tariffs/tempo.json', 'tariffs/total-charge-heures.json', 'tariffs/injection.json'];
+  return ['tariffs/base.json', 'tariffs/hphc.json', 'tariffs/tempo.json', 'tariffs/tempoOptimized.json', 'tariffs/total-charge-heures.json', 'tariffs/octopusEnergy.json', 'tariffs/injection.json'];
 }
 
 /**

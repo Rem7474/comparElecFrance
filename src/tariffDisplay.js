@@ -4,6 +4,8 @@
  * @module tariffDisplay
  */
 
+import { discoverTariffFiles } from './tariffManager.js';
+
 /**
  * Generate a tariff card HTML element
  * @param {Object} tariff - Tariff object with id, name, type, description, prices, etc.
@@ -199,25 +201,46 @@ export function renderTariffCards(tariffData, DEFAULTS, container) {
 }
 
 /**
- * Fetch and parse all tariff JSON files
+ * Extract a key from a tariff file path
+ * @param {string} path - File path like 'tariffs/base.json'
+ * @param {Object} tariffJson - Parsed tariff JSON (to get id if available)
+ * @returns {string} Key for the tariff
+ */
+function getTariffKey(path, tariffJson) {
+  // Prefer explicit id from JSON
+  if (tariffJson && tariffJson.id) {
+    return tariffJson.id;
+  }
+  
+  // Otherwise extract from filename
+  const filename = path.split('/').pop().replace('.json', '');
+  
+  // Handle special cases
+  const keyMap = {
+    'total-charge-heures': 'totalCharge',
+    'octopusEnergy': 'octopusEnergy',
+    'tempoOptimized': 'tempoOptimized'
+  };
+  
+  return keyMap[filename] || filename;
+}
+
+/**
+ * Fetch and parse all tariff JSON files using dynamic discovery
  * @returns {Promise<Object>} Object with all tariff data
  */
 export async function loadAllTariffFiles() {
-  const tariffFiles = [
-    { key: 'base', path: 'tariffs/base.json' },
-    { key: 'hphc', path: 'tariffs/hphc.json' },
-    { key: 'tempo', path: 'tariffs/tempo.json' },
-    { key: 'totalCharge', path: 'tariffs/total-charge-heures.json' },
-    { key: 'injection', path: 'tariffs/injection.json' }
-  ];
-
+  // Use discoverTariffFiles to get the list dynamically
+  const tariffPaths = await discoverTariffFiles();
   const tariffData = {};
 
-  for (const { key, path } of tariffFiles) {
+  for (const path of tariffPaths) {
     try {
       const resp = await fetch(path, { cache: 'no-cache' });
       if (resp.ok) {
-        tariffData[key] = await resp.json();
+        const json = await resp.json();
+        const key = getTariffKey(path, json);
+        tariffData[key] = json;
       }
     } catch (err) {
       console.warn(`Failed to load ${path}:`, err);
