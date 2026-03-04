@@ -61,6 +61,14 @@ export function mapTariffToDefaults(tariffJson, DEFAULTS) {
       if (tariffJson.subscriptions) DEFAULTS.hp.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.hp.sub;
       return true;
     }
+    if (id === 'OctopusEnergy' || id === 'octopusEnergy') {
+      if (!DEFAULTS.octopusEnergy) DEFAULTS.octopusEnergy = {};
+      if (tariffJson.php != null) DEFAULTS.octopusEnergy.php = tariffJson.php;
+      if (tariffJson.phc != null) DEFAULTS.octopusEnergy.phc = tariffJson.phc;
+      if (tariffJson.hcRange) DEFAULTS.octopusEnergy.hcRange = tariffJson.hcRange;
+      if (tariffJson.subscriptions) DEFAULTS.octopusEnergy.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.octopusEnergy.sub;
+      return true;
+    }
     if (id === 'tempo' || tariffJson.type === 'tempo') {
       if (tariffJson.blue) DEFAULTS.tempo.blue = tariffJson.blue;
       if (tariffJson.white) DEFAULTS.tempo.white = tariffJson.white;
@@ -145,14 +153,17 @@ export async function discoverTariffFiles(log) {
 
 /**
  * Load all tariff files and apply to DEFAULTS
+ * Also returns metadata about loaded tariffs for dynamic offer building
  * @param {Object} DEFAULTS - Tariff configuration to update
  * @param {Function} log - Logging function
  * @param {Function} setAppState - App state setter
  * @param {Function} displayDefaults - Display update function
- * @returns {Promise<void>}
+ * @returns {Promise<Array>} Array of loaded tariff metadata {id, name, type, color, filepath}
  */
 export async function loadTariffs(DEFAULTS, log, setAppState, displayDefaults) {
   const files = await discoverTariffFiles(log);
+  const loadedTariffs = []; // Track loaded tariffs with metadata
+
   for (const name of files) {
     try {
       const resp = await fetch(name, { cache: 'no-cache' });
@@ -162,6 +173,19 @@ export async function loadTariffs(DEFAULTS, log, setAppState, displayDefaults) {
         continue;
       }
       const json = await resp.json();
+      
+      // Store metadata before processing
+      if (json.id && json.type) {
+        loadedTariffs.push({
+          id: json.id,
+          name: json.name || json.id,
+          type: json.type,
+          color: json.color,
+          colorWithPV: json.colorWithPV,
+          filepath: name
+        });
+      }
+      
       // Try mapping known tariff file formats into DEFAULTS first
       const mapped = mapTariffToDefaults(json, DEFAULTS);
       if (!mapped) mergeTariffs(DEFAULTS, json);
@@ -170,6 +194,7 @@ export async function loadTariffs(DEFAULTS, log, setAppState, displayDefaults) {
       console.error('Tariff parse failed', name, err);
     }
   }
-  setAppState({ tariffs: DEFAULTS }, 'TARIFFS_LOADED');
+  setAppState({ tariffs: DEFAULTS, loadedTariffs }, 'TARIFFS_LOADED');
   displayDefaults();
+  return loadedTariffs;
 }

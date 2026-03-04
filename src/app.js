@@ -188,6 +188,7 @@ const DEFAULTS = {
   priceBase: 0.194,
   subBase: 15.65,
   hp: { php: 0.2065, phc: 0.1579, hcRange: '22-06', sub: 15.65 },
+  octopusEnergy: { php: 0.2132, phc: 0.1251, hcRange: '22-06', sub: 15.65 },
   tempo: {
     blue: { hp: 0.1612, hc: 0.1325 },
     white: { hp: 0.1871, hc: 0.1499 },
@@ -784,6 +785,73 @@ if (btnExportReport) {
   });
 }
 
+/**
+ * Calculate offer cost based on tariff type and loaded defaults
+ * Supports dynamic tariff calculation for simple/two-tier/three-tier types
+ * @param {Object} tariffMeta - Tariff metadata {id, type, ...}
+ * @param {Object} DEFAULTS - Tariff defaults configuration
+ * @param {Array} recs - Original consumption records (needed for three-tier tariffs)
+ * @param {Array} recsWithPV - Records with PV reduction applied
+ * @param {Array} perHourAnnual - Hourly consumption profile (no PV)
+ * @param {Array} perHourWithPV - Hourly consumption profile (with PV)
+ * @param {number} priceBase - Base price (fallback)
+ * @param {number} subscription - Monthly subscription
+ * @returns {Object} {costNoPV, costWithPV}
+ */
+function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnual, perHourWithPV, priceBase, subscription) {
+  if (!tariffMeta || !tariffMeta.type) {
+    return { costNoPV: 0, costWithPV: 0 };
+  }
+
+  let costNoPV = 0,
+    costWithPV = 0;
+
+  // Base (flat rate)
+  if (tariffMeta.type === 'flat') {
+    const price = DEFAULTS.priceBase || priceBase;
+    costNoPV = computeCostWithProfile(perHourAnnual, price, { mode: 'base' }).cost;
+    costWithPV = computeCostWithProfile(perHourWithPV, price, { mode: 'base' }).cost;
+  }
+  // Two-tier (HP/HC)
+  else if (tariffMeta.type === 'two-tier') {
+    let tariffConfig = null;
+    // Try to find the matching tariff config by id
+    if (tariffMeta.id === 'hphc') {
+      tariffConfig = DEFAULTS.hp;
+    } else if (tariffMeta.id === 'OctopusEnergy' || tariffMeta.id === 'octopusEnergy') {
+      tariffConfig = DEFAULTS.octopusEnergy;
+    }
+
+    if (tariffConfig) {
+      const php = tariffConfig.php || 0.2;
+      const phc = tariffConfig.phc || 0.12;
+      const hcRange = tariffConfig.hcRange || '22-06';
+      costNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
+      costWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
+    }
+  }
+  // Three-tier (HP/HC/HSC)
+  else if (tariffMeta.type === 'three-tier') {
+    const tchConfig = DEFAULTS.totalChargeHeures;
+    if (tchConfig && recs) {
+      // Use actual records for accurate three-tier calculation
+      const tchNoPV = computeCostTotalCharge(recs, tchConfig);
+      costNoPV = tchNoPV.cost || 0;
+      
+      if (recsWithPV) {
+        const tchWithPV = computeCostTotalCharge(recsWithPV, tchConfig);
+        costWithPV = tchWithPV.cost || 0;
+      }
+    }
+  }
+
+  // Add subscription
+  return {
+    costNoPV: costNoPV + subscription,
+    costWithPV: costWithPV + subscription
+  };
+}
+
 export async function compareOffers(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
@@ -815,11 +883,15 @@ export async function compareOffers(records) {
 
   const subBase = (Number(DEFAULTS.subBase) || 0) * monthsCount;
   const subHp = (Number(DEFAULTS.hp.sub) || 0) * monthsCount;
+  const subOctopus = (Number((DEFAULTS.octopusEnergy || {}).sub) || 0) * monthsCount;
   const subTempo = (Number(DEFAULTS.tempo.sub) || 0) * monthsCount;
   const subTch = (Number((DEFAULTS.totalChargeHeures || {}).sub) || 0) * monthsCount;
 
   const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'base' }).cost + subBase;
   const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost + subHp;
+
+  const octopusParams = { mode: 'hp-hc', php: Number((DEFAULTS.octopusEnergy || {}).php) || 0.2, phc: Number((DEFAULTS.octopusEnergy || {}).phc) || 0.12, hcRange: (DEFAULTS.octopusEnergy || {}).hcRange || '22-06' };
+  const octopusCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, octopusParams).cost + subOctopus;
 
   const tempoResNoPV = computeCostTempo(recs, appState.tempoDayMap, DEFAULTS.tempo);
   tempoResNoPV.cost += subTempo;
@@ -839,6 +911,7 @@ export async function compareOffers(records) {
 
   const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'base' }).cost + subBase;
   const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost + subHp;
+  const octopusCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, octopusParams).cost + subOctopus;
 
   const recordsWithPV = recs.map((rec) => ({ ...rec }));
   for (const rec of recordsWithPV) {
@@ -864,7 +937,7 @@ export async function compareOffers(records) {
   const installCost = costBase + numPanels * costPanel;
 
   const totalCostEl = document.getElementById('val-total-cost');
-  const minCost = Math.min(baseCostWithPV, hpCostWithPV, tempoResWithPV.cost || Infinity, tchResWithPV.cost);
+  const minCost = Math.min(baseCostWithPV, hpCostWithPV, octopusCostWithPV, tempoResWithPV.cost || Infinity, tchResWithPV.cost);
   if (totalCostEl) totalCostEl.textContent = `${formatNumber(minCost)} €`;
 
   const pvProdEl = document.getElementById('val-pv-prod');
@@ -879,34 +952,51 @@ export async function compareOffers(records) {
     }
   }
 
-  // Build offers dynamically from loaded tariffs (DEFAULTS / appState.tariffs)
+  // Build offers dynamically from loaded tariffs
   const offers = [];
 
-  const pushOffer = (id, name, noPV, withPV) => {
-    offers.push({ id, name, costNoPV: Number(noPV) || 0, costWithPV: Number(withPV) || 0 });
+  const pushOffer = (id, name, noPV, withPV, color) => {
+    offers.push({ id, name, costNoPV: Number(noPV) || 0, costWithPV: Number(withPV) || 0, color });
   };
 
-  // Base
-  if (DEFAULTS && DEFAULTS.priceBase != null) {
-    pushOffer('base', 'Base', baseCostNoPV, baseCostWithPV);
+  // Build offers from loaded tariffs (dynamic)
+  // Skip tempo, tempoOptimized, and injection (special handling below)
+  const loadedTariffs = appState.loadedTariffs || [];
+  const skipIds = ['tempo', 'tempoOptimized', 'injection'];
+
+  for (const tariffMeta of loadedTariffs) {
+    if (skipIds.includes(tariffMeta.id)) continue; // Skip special cases
+
+    const { costNoPV, costWithPV } = calculateOfferCost(
+      tariffMeta,
+      DEFAULTS,
+      recs,
+      recordsWithPV,
+      perHourAnnual,
+      perHourWithPV,
+      priceBase,
+      0 // Subscription will be added in the calculation function if available
+    );
+
+    // Get subscription price if available in DEFAULTS
+    let subPrice = 0;
+    if (tariffMeta.id === 'base') subPrice = (Number(DEFAULTS.subBase) || 0) * monthsCount;
+    else if (tariffMeta.id === 'hphc') subPrice = (Number(DEFAULTS.hp.sub) || 0) * monthsCount;
+    else if (tariffMeta.id === 'OctopusEnergy' || tariffMeta.id === 'octopusEnergy') subPrice = (Number((DEFAULTS.octopusEnergy || {}).sub) || 0) * monthsCount;
+    else if (tariffMeta.id === 'totalCharge') subPrice = (Number((DEFAULTS.totalChargeHeures || {}).sub) || 0) * monthsCount;
+
+    if (costNoPV > 0 || costWithPV > 0) {
+      pushOffer(tariffMeta.id, tariffMeta.name, costNoPV + subPrice, costWithPV + subPrice, tariffMeta.color);
+    }
   }
 
-  // HP/HC
-  if (DEFAULTS && DEFAULTS.hp) {
-    pushOffer('hphc', 'Heures Pleines / Creuses', hpCostNoPV, hpCostWithPV);
-  }
-
+  // Hardcoded special offers (Tempo variants)
   // Tempo (classic)
   if (DEFAULTS && DEFAULTS.tempo) {
-    pushOffer('tempo', 'Tempo (Classique)', (tempoResNoPV.cost || 0), (tempoResWithPV.cost || 0));
+    pushOffer('tempo', 'Tempo (Classique)', tempoResNoPV.cost || 0, tempoResWithPV.cost || 0, '#59a14f');
     // Tempo optimized
     const tempoOptNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) || 0;
-    pushOffer('tempoOpt', 'Tempo (Optimisé)', tempoOptNoPV, tempoOptimizedCost);
-  }
-
-  // Total Charge'Heures (TCH)
-  if (DEFAULTS && DEFAULTS.totalChargeHeures) {
-    pushOffer('tch', "Total Charge'Heures", (tchResNoPV.cost || 0), (tchResWithPV.cost || 0));
+    pushOffer('tempoOpt', 'Tempo (Optimisé)', tempoOptNoPV, tempoOptimizedCost, '#117a8b');
   }
 
   // Compute best/worst by cost but display Base then HPHC first, then the rest
@@ -934,10 +1024,15 @@ export async function compareOffers(records) {
   appState.setState({ bestOfferId: bestId }, 'compareOffers');
 
   // Consistent color mapping based on offer ID, not index
-  const getOfferColor = (offerId) => {
+  const getOfferColor = (offerId, offerColor) => {
+    // Prefer color from loaded tariff metadata
+    if (offerColor) return offerColor;
+    
+    // Fallback to ID-based mapping
     const colorMap = {
       'base': '#4e79a7',
       'hphc': '#f28e2b',
+      'octopus': '#f28e2b',
       'tempo': '#59a14f',
       'tempoOpt': '#117a8b',
       'tch': '#d62728'
@@ -945,7 +1040,7 @@ export async function compareOffers(records) {
     return colorMap[offerId] || '#a0cbe8';
   };
 
-  const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg) => {
+  const createCard = (title, costNoPV, costPV, isBest, warningMsg, customClass, extraInfo, isPositiveMsg, offerColor) => {
     const div = document.createElement('div');
     div.className = `card result-card${isBest ? ' best-offer' : ''}${customClass ? ` ${customClass}` : ''}`;
     const savings = costNoPV - costPV + exportIncome;
@@ -1035,7 +1130,7 @@ export async function compareOffers(records) {
           // ignore
         }
       }
-      grid.appendChild(createCard(ofr.name, ofr.costNoPV, ofr.costWithPV, isBest, warning, '', extra, warningPositive));
+      grid.appendChild(createCard(ofr.name, ofr.costNoPV, ofr.costWithPV, isBest, warning, '', extra, warningPositive, ofr.color));
     }
   }
 
@@ -1044,7 +1139,7 @@ export async function compareOffers(records) {
   const values = [];
   const bgColors = [];
   offers.forEach((ofr, idx) => {
-    const offerColor = getOfferColor(ofr.id);
+    const offerColor = getOfferColor(ofr.id, ofr.color);
     if (isPvEnabled) {
       labels.push(`${ofr.name} (sans PV)`);
       labels.push(`${ofr.name} (avec PV)`);
