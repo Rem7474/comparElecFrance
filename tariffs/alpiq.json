@@ -1,6 +1,6 @@
 {
-  "id": "OctopusEnergy",
-  "name": "Octopus Energy",
+  "id": "Alpiq",
+  "name": "Alpiq",
   "type": "two-tier",
   "description": "2 tranches horaires (pleines/creuses)",
   "php": 0.177655,
