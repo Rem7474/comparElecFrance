@@ -174,7 +174,7 @@ export async function loadTariffs(DEFAULTS, log, setAppState, displayDefaults) {
       }
       const json = await resp.json();
       
-      // Store metadata before processing
+      // Store metadata + pricing fields for dynamic offer calculations
       if (json.id && json.type) {
         loadedTariffs.push({
           id: json.id,
@@ -182,6 +182,15 @@ export async function loadTariffs(DEFAULTS, log, setAppState, displayDefaults) {
           type: json.type,
           color: json.color,
           colorWithPV: json.colorWithPV,
+          price: json.price,
+          php: json.php,
+          phc: json.phc,
+          phsc: json.phsc,
+          hcRange: json.hcRange,
+          hpRange: json.hpRange,
+          hscRange: json.hscRange,
+          subscriptions: json.subscriptions,
+          injectionPrice: json.injectionPrice,
           filepath: name
         });
       }

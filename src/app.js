@@ -808,31 +808,28 @@ function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnua
 
   // Base (flat rate)
   if (tariffMeta.type === 'flat') {
-    const price = DEFAULTS.priceBase || priceBase;
+    const price = Number(tariffMeta.price != null ? tariffMeta.price : DEFAULTS.priceBase) || priceBase;
     costNoPV = computeCostWithProfile(perHourAnnual, price, { mode: 'base' }).cost;
     costWithPV = computeCostWithProfile(perHourWithPV, price, { mode: 'base' }).cost;
   }
   // Two-tier (HP/HC)
   else if (tariffMeta.type === 'two-tier') {
-    let tariffConfig = null;
-    // Try to find the matching tariff config by id
-    if (tariffMeta.id === 'hphc') {
-      tariffConfig = DEFAULTS.hp;
-    } else if (tariffMeta.id === 'OctopusEnergy' || tariffMeta.id === 'octopusEnergy') {
-      tariffConfig = DEFAULTS.octopusEnergy;
-    }
-
-    if (tariffConfig) {
-      const php = tariffConfig.php || 0.2;
-      const phc = tariffConfig.phc || 0.12;
-      const hcRange = tariffConfig.hcRange || '22-06';
-      costNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
-      costWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
-    }
+    const php = Number(tariffMeta.php) || 0.2;
+    const phc = Number(tariffMeta.phc) || 0.12;
+    const hcRange = tariffMeta.hcRange || '22-06';
+    costNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
+    costWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'hp-hc', php, phc, hcRange }).cost;
   }
   // Three-tier (HP/HC/HSC)
   else if (tariffMeta.type === 'three-tier') {
-    const tchConfig = DEFAULTS.totalChargeHeures;
+    const tchConfig = {
+      php: Number(tariffMeta.php) || Number((DEFAULTS.totalChargeHeures || {}).php) || 0,
+      phc: Number(tariffMeta.phc) || Number((DEFAULTS.totalChargeHeures || {}).phc) || 0,
+      phsc: Number(tariffMeta.phsc) || Number((DEFAULTS.totalChargeHeures || {}).phsc) || 0,
+      hpRange: tariffMeta.hpRange || (DEFAULTS.totalChargeHeures || {}).hpRange,
+      hcRange: tariffMeta.hcRange || (DEFAULTS.totalChargeHeures || {}).hcRange,
+      hscRange: tariffMeta.hscRange || (DEFAULTS.totalChargeHeures || {}).hscRange
+    };
     if (tchConfig && recs) {
       // Use actual records for accurate three-tier calculation
       const tchNoPV = computeCostTotalCharge(recs, tchConfig);
@@ -937,8 +934,6 @@ export async function compareOffers(records) {
   const installCost = costBase + numPanels * costPanel;
 
   const totalCostEl = document.getElementById('val-total-cost');
-  const minCost = Math.min(baseCostWithPV, hpCostWithPV, octopusCostWithPV, tempoResWithPV.cost || Infinity, tchResWithPV.cost);
-  if (totalCostEl) totalCostEl.textContent = `${formatNumber(minCost)} €`;
 
   const pvProdEl = document.getElementById('val-pv-prod');
   if (pvProdEl) pvProdEl.textContent = isPvEnabled ? `${formatNumber(annualProduction)} kWh` : 'Désactivé';
@@ -965,7 +960,7 @@ export async function compareOffers(records) {
   const skipIds = ['tempo', 'tempoOptimized', 'injection'];
 
   for (const tariffMeta of loadedTariffs) {
-    if (skipIds.includes(tariffMeta.id)) continue; // Skip special cases
+    if (skipIds.includes(tariffMeta.id) || tariffMeta.type === 'tempo' || tariffMeta.type === 'tempo-optimized' || tariffMeta.injectionPrice != null) continue; // Skip special cases
 
     const { costNoPV, costWithPV } = calculateOfferCost(
       tariffMeta,
@@ -978,12 +973,11 @@ export async function compareOffers(records) {
       0 // Subscription will be added in the calculation function if available
     );
 
-    // Get subscription price if available in DEFAULTS
-    let subPrice = 0;
-    if (tariffMeta.id === 'base') subPrice = (Number(DEFAULTS.subBase) || 0) * monthsCount;
-    else if (tariffMeta.id === 'hphc') subPrice = (Number(DEFAULTS.hp.sub) || 0) * monthsCount;
-    else if (tariffMeta.id === 'OctopusEnergy' || tariffMeta.id === 'octopusEnergy') subPrice = (Number((DEFAULTS.octopusEnergy || {}).sub) || 0) * monthsCount;
-    else if (tariffMeta.id === 'totalCharge') subPrice = (Number((DEFAULTS.totalChargeHeures || {}).sub) || 0) * monthsCount;
+    // Subscription for selected power (fallback to first value)
+    const selectedKva = String(Number(appState.currentKva) || 6);
+    const subs = tariffMeta.subscriptions || {};
+    const subMonthly = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
+    const subPrice = subMonthly * monthsCount;
 
     if (costNoPV > 0 || costWithPV > 0) {
       pushOffer(tariffMeta.id, tariffMeta.name, costNoPV + subPrice, costWithPV + subPrice, tariffMeta.color);
@@ -1003,6 +997,11 @@ export async function compareOffers(records) {
   const sortedByCost = offers.slice().sort((a, b) => a.costWithPV - b.costWithPV);
   const bestByCost = sortedByCost.length ? sortedByCost[0] : null;
   const worstByCost = sortedByCost.length ? sortedByCost[sortedByCost.length - 1] : null;
+
+  if (totalCostEl) {
+    const minCost = bestByCost ? bestByCost.costWithPV : 0;
+    totalCostEl.textContent = `${formatNumber(minCost)} €`;
+  }
 
   // Ensure Base and HPHC are displayed first (if present), then the remaining offers ordered by cost
   const baseOffer = offers.find((o) => o.id === 'base');
