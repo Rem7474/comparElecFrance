@@ -898,7 +898,7 @@ if (btnExportReport) {
  * @param {number} subscription - Monthly subscription
  * @returns {Object} {costNoPV, costWithPV}
  */
-function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnual, perHourWithPV, priceBase, subscription) {
+function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnual, perHourWithPV, priceBase, subscription, tempoDayMap = {}) {
   if (!tariffMeta || !tariffMeta.type) {
     return { costNoPV: 0, costWithPV: 0 };
   }
@@ -939,6 +939,32 @@ function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnua
         const tchWithPV = computeCostTotalCharge(recsWithPV, tchConfig);
         costWithPV = tchWithPV.cost || 0;
       }
+    }
+  }
+  // Tempo (special handling with day coloring)
+  else if (tariffMeta.type === 'tempo') {
+    const tempoConfig = tariffMeta.tempoConfig || DEFAULTS.tempo || {};
+    const tempoResNoPV = computeCostTempo(recs, tempoDayMap, tempoConfig);
+    costNoPV = tempoResNoPV.cost || 0;
+    
+    if (recsWithPV) {
+      const tempoResWithPV = computeCostTempo(recsWithPV, tempoDayMap, tempoConfig);
+      costWithPV = tempoResWithPV.cost || 0;
+    } else {
+      costWithPV = costNoPV;
+    }
+  }
+  // Tempo Optimized (special variant)
+  else if (tariffMeta.type === 'tempo-optimized') {
+    const tempoConfig = tariffMeta.tempoConfig || DEFAULTS.tempo || {};
+    const tempoOptResNoPV = computeCostTempoOptimized(recs, tempoDayMap, tempoConfig);
+    costNoPV = (tempoOptResNoPV && tempoOptResNoPV.cost) || 0;
+    
+    if (recsWithPV) {
+      const tempoOptResWithPV = computeCostTempoOptimized(recsWithPV, tempoDayMap, tempoConfig);
+      costWithPV = (tempoOptResWithPV && tempoOptResWithPV.cost) || 0;
+    } else {
+      costWithPV = costNoPV;
     }
   }
 
@@ -989,54 +1015,21 @@ export async function compareOffers(records) {
   const monthsCount = Math.max(1, uniqueMonths.size);
 
   const priceBase = Number(DEFAULTS.priceBase) || 0.18;
-  const hpParams = { mode: 'hp-hc', php: Number(DEFAULTS.hp.php) || 0.2, phc: Number(DEFAULTS.hp.phc) || 0.12, hcRange: DEFAULTS.hp.hcRange || '22-06' };
 
-  const subBase = (Number(DEFAULTS.subBase) || 0) * monthsCount;
-  const subHp = (Number(DEFAULTS.hp.sub) || 0) * monthsCount;
-  const subOctopus = (Number((DEFAULTS.octopusEnergy || {}).sub) || 0) * monthsCount;
-  const subTempo = (Number(DEFAULTS.tempo.sub) || 0) * monthsCount;
-  const subTch = (Number((DEFAULTS.totalChargeHeures || {}).sub) || 0) * monthsCount;
-
-  const baseCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, { mode: 'base' }).cost + subBase;
-  const hpCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, hpParams).cost + subHp;
-
-  const octopusParams = { mode: 'hp-hc', php: Number((DEFAULTS.octopusEnergy || {}).php) || 0.2, phc: Number((DEFAULTS.octopusEnergy || {}).phc) || 0.12, hcRange: (DEFAULTS.octopusEnergy || {}).hcRange || '22-06' };
-  const octopusCostNoPV = computeCostWithProfile(perHourAnnual, priceBase, octopusParams).cost + subOctopus;
-
-  const tempoResNoPV = computeCostTempo(recs, appState.tempoDayMap, DEFAULTS.tempo);
-  tempoResNoPV.cost += subTempo;
-
-  // Tempo optimized (no PV) - compute before building offers list
-  const tempoOptimizedResNoPV = computeCostTempoOptimized(recs, appState.tempoDayMap, DEFAULTS.tempo);
-  if (tempoOptimizedResNoPV && typeof tempoOptimizedResNoPV.cost === 'number') {
-    tempoOptimizedResNoPV.cost += subTempo;
-  }
-
-  const tchResNoPV = computeCostTotalCharge(recs, DEFAULTS.totalChargeHeures);
-  tchResNoPV.cost += subTch;
+  // Record grouping has already been done at the start of compareOffers
+  // All tariff costs will be calculated dynamically via calculateOfferCost()
 
   const standbyW = Number((document.getElementById('pv-standby') || {}).value) || 0;
   const pvSim = simulatePVEffect(recs, annualProduction, exportPrice, standbyW, DEFAULTS.monthlySolarWeights);
   const perHourWithPV = perHourAnnual.map((v, h) => Math.max(0, v - (pvSim.consumedByHour[h] || 0)));
 
-  const baseCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, { mode: 'base' }).cost + subBase;
-  const hpCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, hpParams).cost + subHp;
-  const octopusCostWithPV = computeCostWithProfile(perHourWithPV, priceBase, octopusParams).cost + subOctopus;
-
+  // Prepare records with PV effect for cost calculations
   const recordsWithPV = recs.map((rec) => ({ ...rec }));
   for (const rec of recordsWithPV) {
     const key = String(rec.dateDebut);
     const reduction = (pvSim.allocatedByTimestamp && pvSim.allocatedByTimestamp[key]) || 0;
     rec.valeur = Math.max(0, Number(rec.valeur || 0) - reduction);
   }
-
-  const tempoResWithPV = computeCostTempo(recordsWithPV, appState.tempoDayMap, DEFAULTS.tempo);
-  tempoResWithPV.cost += subTempo;
-  const tchResWithPV = computeCostTotalCharge(recordsWithPV, DEFAULTS.totalChargeHeures);
-  tchResWithPV.cost += subTch;
-
-  const tempoOptimizedResWithPV = computeCostTempoOptimized(recordsWithPV, appState.tempoDayMap, DEFAULTS.tempo);
-  const tempoOptimizedCost = (tempoOptimizedResWithPV && tempoOptimizedResWithPV.cost ? tempoOptimizedResWithPV.cost : tempoResWithPV.cost) + subTempo;
 
   const exportIncome = pvSim.exported * exportPrice;
 
@@ -1060,20 +1053,21 @@ export async function compareOffers(records) {
     }
   }
 
-  // Build offers dynamically from loaded tariffs
+  // Build offers dynamically from loaded tariffs (completely dynamic - all types handled)
   const offers = [];
 
   const pushOffer = (id, name, noPV, withPV, color) => {
     offers.push({ id, name, costNoPV: Number(noPV) || 0, costWithPV: Number(withPV) || 0, color });
   };
 
-  // Build offers from loaded tariffs (dynamic)
-  // Skip tempo, tempoOptimized, and injection (special handling below)
-  const skipIds = ['tempo', 'tempoOptimized', 'injection'];
-
+  // Iterate over ALL loaded tariffs and calculate costs dynamically
+  const selectedKva = String(Number(appState.currentKva) || 6);
+  
   for (const tariffMeta of loadedTariffs) {
-    if (skipIds.includes(tariffMeta.id) || tariffMeta.type === 'tempo' || tariffMeta.type === 'tempo-optimized' || tariffMeta.injectionPrice != null) continue; // Skip special cases
+    // Skip injection price tariffs
+    if (tariffMeta.injectionPrice != null) continue;
 
+    // Calculate costs using generic dispatcher (handles all types: flat, two-tier, three-tier, tempo, tempo-optimized)
     const { costNoPV, costWithPV } = calculateOfferCost(
       tariffMeta,
       DEFAULTS,
@@ -1082,27 +1076,19 @@ export async function compareOffers(records) {
       perHourAnnual,
       perHourWithPV,
       priceBase,
-      0 // Subscription will be added in the calculation function if available
+      0,
+      appState.tempoDayMap || {} // Pass tempoDayMap for tempo calculations
     );
 
-    // Subscription for selected power (fallback to first value)
-    const selectedKva = String(Number(appState.currentKva) || 6);
+    // Get subscription for this tariff
     const subs = tariffMeta.subscriptions || {};
     const subMonthly = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
     const subPrice = subMonthly * monthsCount;
 
-    if (costNoPV > 0 || costWithPV > 0) {
+    // Add offer if costs are valid
+    if (costNoPV > 0 || costWithPV > 0 || tariffMeta.type === 'tempo' || tariffMeta.type === 'tempo-optimized') {
       pushOffer(tariffMeta.id, tariffMeta.name, costNoPV + subPrice, costWithPV + subPrice, tariffMeta.color);
     }
-  }
-
-  // Hardcoded special offers (Tempo variants)
-  // Tempo (classic)
-  if (DEFAULTS && DEFAULTS.tempo) {
-    pushOffer('tempo', 'Tempo (Classique)', tempoResNoPV.cost || 0, tempoResWithPV.cost || 0, '#59a14f');
-    // Tempo optimized
-    const tempoOptNoPV = (tempoOptimizedResNoPV && tempoOptimizedResNoPV.cost) || 0;
-    pushOffer('tempoOpt', 'Tempo (Optimisé)', tempoOptNoPV, tempoOptimizedCost, '#117a8b');
   }
 
   // Compute best/worst by cost but display Base then HPHC first, then the rest
