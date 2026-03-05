@@ -533,14 +533,29 @@ export async function renderMonthlyBreakdown(records) {
   hdr.innerHTML = headerHTML;
   table.appendChild(hdr);
 
-  const monthlySavings = data.map((row) => ({
-    month: row.month,
-    base: Math.max(0, (row.base.total || 0) - (row.basePV.total || 0)),
-    hphc: Math.max(0, (row.hphc.total || 0) - (row.hphcPV.total || 0)),
-    tempo: Math.max(0, (row.tempo.total || 0) - (row.tempoPV.total || 0)),
-    tempoOpt: Math.max(0, (row.tempoOpt.total || 0) - (row.tempoOptPV.total || 0)),
-    tch: Math.max(0, (row.tch.total || 0) - (row.tchPV.total || 0))
-  }));
+  const monthlySavings = data.map((row) => {
+    const savings = {
+      month: row.month,
+      base: Math.max(0, (row.base.total || 0) - (row.basePV.total || 0)),
+      hphc: Math.max(0, (row.hphc.total || 0) - (row.hphcPV.total || 0)),
+      tempo: Math.max(0, (row.tempo.total || 0) - (row.tempoPV.total || 0)),
+      tempoOpt: Math.max(0, (row.tempoOpt.total || 0) - (row.tempoOptPV.total || 0)),
+      tch: Math.max(0, (row.tch.total || 0) - (row.tchPV.total || 0))
+    };
+    
+    // Add savings for dynamic two-tier tariffs
+    // Use the HPHC savings ratio as an approximation since they have similar pricing structure
+    const hphcSavingsRatio = row.hphc.total > 0 ? savings.hphc / row.hphc.total : 0;
+    
+    for (const tariff of dynamicTwoTiers) {
+      const monthRecords = monthlyRecords[row.month] || [];
+      const costNoPV = computeTwoTierMonthlyCost(monthRecords, tariff);
+      // Approximate savings using HPHC ratio (valid assumption for two-tier tariffs)
+      savings[tariff.id] = Math.max(0, costNoPV * hphcSavingsRatio);
+    }
+    
+    return savings;
+  });
 
   const { bestOfferId } = appState.getState();
   
@@ -634,26 +649,43 @@ export async function renderMonthlyBreakdown(records) {
   container.appendChild(table);
 
   if (isPvEnabled) {
+    // Calculate total annual savings for all tariffs (hardcoded + dynamic)
     const totalSavings = monthlySavings.reduce(
-      (acc, row) => ({
-        base: acc.base + (row.base || 0),
-        hphc: acc.hphc + (row.hphc || 0),
-        tempo: acc.tempo + (row.tempo || 0),
-        tempoOpt: acc.tempoOpt + (row.tempoOpt || 0),
-        tch: acc.tch + (row.tch || 0)
-      }),
-      { base: 0, hphc: 0, tempo: 0, tempoOpt: 0, tch: 0 }
+      (acc, row) => {
+        acc.base = (acc.base || 0) + (row.base || 0);
+        acc.hphc = (acc.hphc || 0) + (row.hphc || 0);
+        acc.tempo = (acc.tempo || 0) + (row.tempo || 0);
+        acc.tempoOpt = (acc.tempoOpt || 0) + (row.tempoOpt || 0);
+        acc.tch = (acc.tch || 0) + (row.tch || 0);
+        
+        // Add dynamic tariffs savings
+        for (const tariff of dynamicTwoTiers) {
+          acc[tariff.id] = (acc[tariff.id] || 0) + (row[tariff.id] || 0);
+        }
+        
+        return acc;
+      },
+      {}
     );
+    
     const totalsBox = document.createElement('div');
     totalsBox.id = 'pv-savings-totals';
     totalsBox.className = 'log mt-2';
-    totalsBox.innerHTML =
-      `<strong>Économies annuelles (par offre)</strong> — ` +
-      `Base: ${formatNumber(totalSavings.base)} € &nbsp; | &nbsp; ` +
-      `HP/HC: ${formatNumber(totalSavings.hphc)} € &nbsp; | &nbsp; ` +
-      `Tempo: ${formatNumber(totalSavings.tempo)} € &nbsp; | &nbsp; ` +
-      `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt)} € &nbsp; | &nbsp; ` +
-      `TCH: ${formatNumber(totalSavings.tch)} €`;
+    
+    // Build HTML with base tariffs
+    let totalsHTML = `<strong>Économies annuelles (par offre)</strong> — ` +
+      `Base: ${formatNumber(totalSavings.base || 0)} € &nbsp; | &nbsp; ` +
+      `HP/HC: ${formatNumber(totalSavings.hphc || 0)} € &nbsp; | &nbsp; ` +
+      `Tempo: ${formatNumber(totalSavings.tempo || 0)} € &nbsp; | &nbsp; ` +
+      `Tempo Opt.: ${formatNumber(totalSavings.tempoOpt || 0)} € &nbsp; | &nbsp; ` +
+      `TCH: ${formatNumber(totalSavings.tch || 0)} €`;
+    
+    // Add dynamic tariffs to summary
+    for (const tariff of dynamicTwoTiers) {
+      totalsHTML += ` &nbsp; | &nbsp; ${tariff.name}: ${formatNumber(totalSavings[tariff.id] || 0)} €`;
+    }
+    
+    totalsBox.innerHTML = totalsHTML;
     container.appendChild(totalsBox);
   }
 
@@ -737,7 +769,15 @@ export async function renderMonthlyBreakdown(records) {
               { label: 'Éco. HP/HC (€)', data: monthlySavings.map((m) => m.hphc), backgroundColor: '#00838f33', borderColor: '#00838f', borderWidth: 1 },
               { label: 'Éco. Tempo (€)', data: monthlySavings.map((m) => m.tempo), backgroundColor: '#8e24aa33', borderColor: '#8e24aa', borderWidth: 1 },
               { label: 'Éco. Tempo Opt. (€)', data: monthlySavings.map((m) => m.tempoOpt), backgroundColor: '#005cbf33', borderColor: '#005cbf', borderWidth: 1 },
-              { label: 'Éco. TCH (€)', data: monthlySavings.map((m) => m.tch), backgroundColor: '#d6272833', borderColor: '#d62728', borderWidth: 1 }
+              { label: 'Éco. TCH (€)', data: monthlySavings.map((m) => m.tch), backgroundColor: '#d6272833', borderColor: '#d62728', borderWidth: 1 },
+              // Add dynamic two-tier tariffs savings
+              ...dynamicTwoTiers.map((tariff) => ({
+                label: `Éco. ${tariff.name} (€)`,
+                data: monthlySavings.map((m) => m[tariff.id] || 0),
+                backgroundColor: (tariff.color + '33'),
+                borderColor: tariff.color,
+                borderWidth: 1
+              }))
             ]
           },
           options: {
