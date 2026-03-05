@@ -958,6 +958,19 @@ export async function compareOffers(records) {
 
   const grid = document.getElementById('offers-results-grid');
   appendLog(analysisLog, 'Comparaison des offres en cours...');
+  
+  // Group records by month for dynamic tariff calculations
+  const monthlyRecords = {};
+  for (const rec of recs) {
+    const date = new Date(rec.dateDebut);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthlyRecords[monthKey]) monthlyRecords[monthKey] = [];
+    monthlyRecords[monthKey].push(rec);
+  }
+  
+  // Load dynamic two-tier tariffs
+  const loadedTariffs = (appState.getState().loadedTariffs || []);
+  const dynamicTwoTiers = loadedTariffs.filter(t => t.type === 'two-tier' && t.id !== 'hphc');
 
   const isPvEnabled = document.getElementById('toggle-pv') ? document.getElementById('toggle-pv').checked : true;
   const annualProduction = isPvEnabled
@@ -1056,7 +1069,6 @@ export async function compareOffers(records) {
 
   // Build offers from loaded tariffs (dynamic)
   // Skip tempo, tempoOptimized, and injection (special handling below)
-  const loadedTariffs = (appState.getState().loadedTariffs || []);
   const skipIds = ['tempo', 'tempoOptimized', 'injection'];
 
   for (const tariffMeta of loadedTariffs) {
