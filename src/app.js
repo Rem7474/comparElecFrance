@@ -428,6 +428,29 @@ export async function analyzeFilesNow(records) {
 
 // computeCostWithProfile, monthKeyFromDateStr, computeMonthlyBreakdown imported from analysisEngine.js
 
+/**
+ * Helper: Compute monthly cost for a two-tier tariff
+ * @param {Array} monthRecords - Records for a single month
+ * @param {Object} tariffMeta - Tariff metadata { php, phc, hcRange }
+ * @returns {number} Monthly cost without PV
+ */
+function computeTwoTierMonthlyCost(monthRecords, tariffMeta) {
+  if (!tariffMeta || !tariffMeta.php || !tariffMeta.phc) return 0;
+  let hp = 0, hc = 0;
+  for (const rec of monthRecords) {
+    const date = new Date(rec.dateDebut);
+    const hour = date.getHours();
+    const value = Number(rec.valeur) || 0;
+    if (isHourHC(hour, tariffMeta.hcRange || '22-06')) {
+      hc += value;
+    } else {
+      hp += value;
+    }
+  }
+  const sub = (tariffMeta.subscriptions && tariffMeta.subscriptions[Object.keys(tariffMeta.subscriptions)[0]]) || 0;
+  return hp * tariffMeta.php + hc * tariffMeta.phc + sub;
+}
+
 export async function renderMonthlyBreakdown(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
@@ -436,6 +459,15 @@ export async function renderMonthlyBreakdown(records) {
   }
 
   appendLog(analysisLog, 'Calcul ventilation mensuelle...');
+  
+  // Group records by month for dynamic tariff calculations
+  const monthlyRecords = {};
+  for (const rec of recs) {
+    const date = new Date(rec.dateDebut);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthlyRecords[monthKey]) monthlyRecords[monthKey] = [];
+    monthlyRecords[monthKey].push(rec);
+  }
   
   // Prepare parameters for computeMonthlyBreakdown
   const pvKwp = Number(document.getElementById('pv-kwp')?.value) || 0;
@@ -472,18 +504,28 @@ export async function renderMonthlyBreakdown(records) {
   const table = document.createElement('table');
   const hdr = document.createElement('tr');
   const isPvEnabled = document.getElementById('toggle-pv') ? document.getElementById('toggle-pv').checked : true;
+  
+  // Load tariff metadata once
+  const loadedTariffs = (appState.getState().loadedTariffs || []);
+  const dynamicTwoTiers = loadedTariffs.filter(t => t.type === 'two-tier' && t.id !== 'hphc');
+  
+  // Build header dynamically: hardcoded tariffs + any two-tier dynamic tariffs
   let headerHTML = '<th>Mois</th><th>Consommation (kWh)</th>';
-  if (isPvEnabled) {
-    headerHTML +=
-      '<th>Base (€)</th><th>Base (avec PV) (€)</th><th>Éco. PV Base (€)</th>' +
-      '<th>HP/HC (€)</th><th>HP/HC (avec PV) (€)</th><th>Éco. PV HP/HC (€)</th>' +
-      '<th>Tempo (€)</th><th>Tempo (avec PV) (€)</th><th>Éco. PV Tempo (€)</th>' +
-      '<th>Tempo Opt. (€)</th><th>Tempo Opt. (avec PV) (€)</th><th>Éco. PV Tempo Opt. (€)</th>' +
-      '<th>TCH (€)</th><th>TCH (avec PV) (€)</th><th>Éco. PV TCH (€)</th>' +
-      '<th>Diff. HP/HC vs Meilleure (€)</th>';
-  } else {
-    headerHTML += '<th>Base (€)</th><th>HP/HC (€)</th><th>Tempo (€)</th><th>Tempo Opt. (€)</th><th>TCH (€)</th><th>Diff. HP/HC vs Meilleure (€)</th>';
+  headerHTML += '<th>Base (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>Base PV (€)</th><th>Éco. Base (€)</th>';
+  headerHTML += '<th>HP/HC (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>HP/HC PV (€)</th><th>Éco. HP/HC (€)</th>';
+  
+  // Add dynamic two-tier tariffs
+  for (const tariff of dynamicTwoTiers) {
+    headerHTML += `<th>${tariff.name} (€)</th>`;
   }
+  
+  headerHTML += '<th>Tempo (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>Tempo PV (€)</th><th>Éco. Tempo (€)</th>';
+  headerHTML += '<th>TCH (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>TCH PV (€)</th><th>Éco. TCH (€)</th>';
+  
   hdr.innerHTML = headerHTML;
   table.appendChild(hdr);
 
@@ -497,6 +539,9 @@ export async function renderMonthlyBreakdown(records) {
   }));
 
   const { bestOfferId } = appState.getState();
+  
+  // Helper function to compute monthly cost for a two-tier tariff
+
   const getMonthlyOfferCost = (row, offerId, usePv) => {
     if (!offerId) return null;
     switch (offerId) {
@@ -544,7 +589,16 @@ export async function renderMonthlyBreakdown(records) {
         `<td class="text-success">${formatNumber(sv.hphc)}</td>` +
         `<td>${formatNumber(row.tempo.total)}</td>` +
         `<td>${formatNumber(row.tempoPV.total)}</td>` +
-        `<td class="text-success">${formatNumber(sv.tempo)}</td>` +
+        `<td class="text-success">${formatNumber(sv.tempo)}</td>`;
+      
+      // Add dynamic two-tier tariffs
+      for (const tariff of dynamicTwoTiers) {
+        const monthRecords = monthlyRecords[row.month] || [];
+        const dynamicCost = computeTwoTierMonthlyCost(monthRecords, tariff);
+        rowHTML += `<td>${formatNumber(dynamicCost)}</td>`;
+      }
+      
+      rowHTML +=
         `<td>${formatNumber(row.tempoOpt.total)}</td>` +
         `<td>${formatNumber(row.tempoOptPV.total)}</td>` +
         `<td class="text-success">${formatNumber(sv.tempoOpt)}</td>` +
@@ -556,7 +610,16 @@ export async function renderMonthlyBreakdown(records) {
       rowHTML +=
         `<td>${formatNumber(row.base.total)}</td>` +
         `<td>${formatNumber(row.hphc.total)}</td>` +
-        `<td>${formatNumber(row.tempo.total)}</td>` +
+        `<td>${formatNumber(row.tempo.total)}</td>`;
+      
+      // Add dynamic two-tier tariffs (without PV)
+      for (const tariff of dynamicTwoTiers) {
+        const monthRecords = monthlyRecords[row.month] || [];
+        const dynamicCost = computeTwoTierMonthlyCost(monthRecords, tariff);
+        rowHTML += `<td>${formatNumber(dynamicCost)}</td>`;
+      }
+      
+      rowHTML +=
         `<td>${formatNumber(row.tempoOpt.total)}</td>` +
         `<td>${formatNumber(row.tch.total)}</td>` +
         `<td class="${diffClass}" style="font-weight: bold;">${diffDisplay} €</td>`;

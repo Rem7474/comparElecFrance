@@ -203,7 +203,8 @@ export function renderOffersChart(offers, isPvEnabled, canvasElement) {
   const colors = [];
   
   offers.forEach((ofr) => {
-    const offerColor = getOfferColor(ofr.id);
+    // Use color from offer metadata if available, otherwise fallback to mapping
+    const offerColor = ofr.color || getOfferColor(ofr.id);
     if (isPvEnabled) {
       labels.push(`${ofr.name} (sans PV)`);
       labels.push(`${ofr.name} (avec PV)`);
