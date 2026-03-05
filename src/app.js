@@ -516,15 +516,19 @@ export async function renderMonthlyBreakdown(records) {
   headerHTML += '<th>HP/HC (€)</th>';
   if (isPvEnabled) headerHTML += '<th>HP/HC PV (€)</th><th>Éco. HP/HC (€)</th>';
   
+  headerHTML += '<th>Tempo (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>Tempo PV (€)</th><th>Éco. Tempo (€)</th>';
+  
   // Add dynamic two-tier tariffs
   for (const tariff of dynamicTwoTiers) {
     headerHTML += `<th>${tariff.name} (€)</th>`;
   }
   
-  headerHTML += '<th>Tempo (€)</th>';
-  if (isPvEnabled) headerHTML += '<th>Tempo PV (€)</th><th>Éco. Tempo (€)</th>';
+  headerHTML += '<th>Tempo Opt. (€)</th>';
+  if (isPvEnabled) headerHTML += '<th>Tempo Opt. PV (€)</th><th>Éco. Tempo Opt. (€)</th>';
   headerHTML += '<th>TCH (€)</th>';
   if (isPvEnabled) headerHTML += '<th>TCH PV (€)</th><th>Éco. TCH (€)</th>';
+  headerHTML += '<th>Différence vs HP/HC (€)</th>';
   
   hdr.innerHTML = headerHTML;
   table.appendChild(hdr);
@@ -768,6 +772,19 @@ export async function runPvSimulation(records) {
   if (!isPvEnabled) return;
 
   appendLog(analysisLog, 'Estimation PV en cours...');
+  
+  // Group records by month for dynamic tariff calculations
+  const monthlyRecords = {};
+  for (const rec of recs) {
+    const date = new Date(rec.dateDebut);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthlyRecords[monthKey]) monthlyRecords[monthKey] = [];
+    monthlyRecords[monthKey].push(rec);
+  }
+  
+  // Load dynamic two-tier tariffs
+  const loadedTariffs = (appState.getState().loadedTariffs || []);
+  const dynamicTwoTiers = loadedTariffs.filter(t => t.type === 'two-tier' && t.id !== 'hphc');
   const pvKwp = Number((document.getElementById('pv-kwp') || {}).value) || 0;
   const region = (document.getElementById('pv-region') || {}).value || 'centre';
   const standbyW = Number((document.getElementById('pv-standby') || {}).value) || 0;
