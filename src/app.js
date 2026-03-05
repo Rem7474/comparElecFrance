@@ -54,6 +54,7 @@ import {
 import { setupPvControls, setupPvToggle } from './pvManager.js';
 import { loadTariffs } from './tariffManager.js';
 import { loadAllTariffFiles, renderTariffCards } from './tariffDisplay.js';
+import { exportToPDF, exportToExcel, saveToHistory, getAnalysisHistory, deleteFromHistory } from './exportManager.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -69,6 +70,12 @@ const dropZoneSub = document.getElementById('drop-zone-subtext');
 // File input and drop zone are now managed by uiManager.js
 
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
+
+// Export buttons
+const btnExportPdf = document.getElementById('btn-export-pdf');
+const btnExportExcel = document.getElementById('btn-export-excel');
+const btnSaveHistory = document.getElementById('btn-save-history');
+
 function applyTheme(isDark) {
   if (isDark) {
     document.body.classList.add('dark-mode');
@@ -91,6 +98,76 @@ if (btnThemeToggle) {
   btnThemeToggle.addEventListener('click', () => {
     const isDark = document.body.classList.contains('dark-mode');
     applyTheme(!isDark);
+  });
+}
+
+// Export Button Listeners
+if (btnExportPdf) {
+  btnExportPdf.addEventListener('click', async () => {
+    try {
+      btnExportPdf.disabled = true;
+      btnExportPdf.textContent = '⏳ Génération...';
+      
+      const analysisData = buildCurrentAnalysisData();
+      await exportToPDF(analysisData, getCurrentConsumptionData(), getCurrentOffers());
+      
+      btnExportPdf.textContent = '✅ Exporté!';
+      setTimeout(() => {
+        btnExportPdf.textContent = '📄 Export PDF';
+        btnExportPdf.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Erreur export PDF:', error);
+      alert('Erreur lors de l\'export PDF. Vérifiez que jsPDF est chargé via CDN.');
+      btnExportPdf.textContent = '📄 Export PDF';
+      btnExportPdf.disabled = false;
+    }
+  });
+}
+
+if (btnExportExcel) {
+  btnExportExcel.addEventListener('click', async () => {
+    try {
+      btnExportExcel.disabled = true;
+      btnExportExcel.textContent = '⏳ Génération...';
+      
+      const analysisData = buildCurrentAnalysisData();
+      await exportToExcel(analysisData, getCurrentMonthlyBreakdown(), getCurrentOffers());
+      
+      btnExportExcel.textContent = '✅ Exporté!';
+      setTimeout(() => {
+        btnExportExcel.textContent = '📊 Export Excel';
+        btnExportExcel.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Erreur export Excel:', error);
+      alert('Erreur lors de l\'export Excel. Vérifiez que XLSX.js est chargé via CDN.');
+      btnExportExcel.textContent = '📊 Export Excel';
+      btnExportExcel.disabled = false;
+    }
+  });
+}
+
+if (btnSaveHistory) {
+  btnSaveHistory.addEventListener('click', () => {
+    try {
+      const analysisData = buildCurrentAnalysisData();
+      const label = prompt('Nom pour cette analyse (optionnel):', `Analyse ${new Date().toLocaleDateString('fr-FR')}`);
+      
+      if (label !== null) {
+        const saved = saveToHistory(analysisData, label);
+        if (saved) {
+          alert(`✅ Analyse sauvegardée: "${saved.label}"`);
+          btnSaveHistory.textContent = '✅ Sauvegardé!';
+          setTimeout(() => {
+            btnSaveHistory.textContent = '💾 Sauvegarder';
+          }, 2000);
+        }
+      }
+    } catch (error) {
+      console.error('Erreur sauvegarde:', error);
+      alert('Erreur lors de la sauvegarde.');
+    }
   });
 }
 
@@ -365,6 +442,11 @@ function renderHpHcPie(records) {
 export async function analyzeFilesNow(records) {
   const dashboard = document.getElementById('dashboard-section');
   if (dashboard) dashboard.classList.remove('hidden');
+  
+  // Show export buttons
+  if (btnExportPdf) btnExportPdf.classList.remove('hidden');
+  if (btnExportExcel) btnExportExcel.classList.remove('hidden');
+  if (btnSaveHistory) btnSaveHistory.classList.remove('hidden');
 
   appendLog(analysisLog, 'Démarrage de l\'analyse...');
   if (!records || records.length === 0) {
@@ -1455,6 +1537,93 @@ export async function compareOffers(records) {
 }
 
 // Tempo functions (tempoStorageKey, ensureTempoDayMap, mapColorToHex, getRepresentativePriceForEntry, createTooltip, renderTempoCalendarGraph) now imported from tempoCalendar.js
+
+// ============ EXPORT & HISTORY HELPERS ============
+
+/**
+ * Build current analysis data for export
+ * Gathers all analysis results, PV config, and metadata
+ */
+function buildCurrentAnalysisData() {
+  const state = appState.getState();
+  const records = state.records || [];
+  const offers = state.offers || [];
+  const stats = state.stats || {};
+  
+  return {
+    timestamp: new Date().toISOString(),
+    annualConsumption: stats.total || 0,
+    costBase: state.costBase || 0,
+    pvSavings: state.pvSavings || 0,
+    temperature: stats.avg || 0,
+    pvConfig: {
+      kwp: Number(document.getElementById('pv-kwp')?.value) || 0,
+      region: document.getElementById('pv-region')?.value || 'centre',
+      annualProduction: state.annualPvProduction || 0,
+      autoconsumptionRate: state.autoconsumptionRate || 0
+    },
+    annualSummary: {
+      annualConsumption: stats.total || 0,
+      costBase: state.costBase || 0,
+      pvSavings: state.pvSavings || 0
+    },
+    offers: offers.map(o => ({
+      name: o.name || 'N/A',
+      costNoPV: o.costNoPV || 0,
+      costWithPV: o.costWithPV || 0,
+      savings: o.savings || 0,
+      color: o.color || '#999'
+    })),
+    rawRecords: records.slice(0, 365) // First 365 records
+  };
+}
+
+/**
+ * Get current consumption data
+ */
+function getCurrentConsumptionData() {
+  const state = appState.getState();
+  const stats = state.stats || {};
+  return {
+    total: stats.total || 0,
+    avg: stats.avg || 0,
+    min: stats.min || 0,
+    max: stats.max || 0
+  };
+}
+
+/**
+ * Get current offers array
+ */
+function getCurrentOffers() {
+  const state = appState.getState();
+  return state.offers || [];
+}
+
+/**
+ * Get current monthly breakdown
+ */
+function getCurrentMonthlyBreakdown() {
+  const state = appState.getState();
+  const records = state.records || [];
+  
+  if (!records || records.length === 0) return [];
+  
+  const months = {};
+  for (const rec of records) {
+    const date = new Date(rec.dateDebut);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!months[monthKey]) months[monthKey] = [];
+    months[monthKey].push(rec);
+  }
+  
+  return Object.entries(months).map(([month, recs]) => ({
+    month,
+    consumption: recs.reduce((sum, r) => sum + (Number(r.valeur) || 0), 0)
+  }));
+}
+
+// ============ END EXPORT HELPERS ============
 
 const SETTINGS_KEYS = [
   'pv-kwp',
