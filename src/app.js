@@ -654,6 +654,16 @@ export async function renderMonthlyBreakdown(records) {
   }
 
   const labels = data.map((row) => row.month);
+  
+  // Build datasets dynamically including all loaded tariffs
+  const dynamicTariffCosts = {};
+  for (const tariff of dynamicTwoTiers) {
+    dynamicTariffCosts[tariff.id] = data.map((row) => {
+      const monthRecords = monthlyRecords[row.month] || [];
+      return computeTwoTierMonthlyCost(monthRecords, tariff);
+    });
+  }
+  
   let datasets = [];
   if (isPvEnabled) {
     datasets = [
@@ -668,6 +678,11 @@ export async function renderMonthlyBreakdown(records) {
       { label: 'TCH', data: data.map((row) => row.tch.total), backgroundColor: '#d62728' },
       { label: 'TCH (avec PV)', data: data.map((row) => row.tchPV.total), backgroundColor: '#ff9896' }
     ];
+    
+    // Add dynamic two-tier tariffs
+    for (const tariff of dynamicTwoTiers) {
+      datasets.push({ label: tariff.name, data: dynamicTariffCosts[tariff.id], backgroundColor: tariff.color });
+    }
   } else {
     datasets = [
       { label: 'Base', data: data.map((row) => row.base.total), backgroundColor: '#4e79a7' },
@@ -676,6 +691,11 @@ export async function renderMonthlyBreakdown(records) {
       { label: 'Tempo Opt.', data: data.map((row) => row.tempoOpt.total), backgroundColor: '#17a2b8' },
       { label: 'TCH', data: data.map((row) => row.tch.total), backgroundColor: '#d62728' }
     ];
+    
+    // Add dynamic two-tier tariffs
+    for (const tariff of dynamicTwoTiers) {
+      datasets.push({ label: tariff.name, data: dynamicTariffCosts[tariff.id], backgroundColor: tariff.color });
+    }
   }
 
   const ctx = document.getElementById('monthly-chart').getContext('2d');
@@ -1317,6 +1337,17 @@ export async function compareOffers(records) {
     const tchPriceSeries = monthly.map((m) => (m.consumption > 0 ? (m.tch && m.tch.energy ? m.tch.energy / m.consumption : null) : null));
     const tchPricePVSeries = monthly.map((m) => (m.consumption > 0 ? (m.tchPV && m.tchPV.energy ? m.tchPV.energy / m.consumption : null) : null));
     const pvProdSeries = monthly.map((m) => m.monthPV || 0);
+    
+    // Calculate average prices for dynamic two-tier tariffs
+    const dynamicTariffPriceSeries = {};
+    for (const tariff of dynamicTwoTiers) {
+      dynamicTariffPriceSeries[tariff.id] = monthly.map((m) => {
+        const monthRecords = monthlyRecords[m.month] || [];
+        const totalCost = computeTwoTierMonthlyCost(monthRecords, tariff);
+        return m.consumption > 0 ? totalCost / m.consumption : null;
+      });
+    }
+    
     const pc = document.getElementById('price-pv-chart');
     if (pc) {
       const ctx2 = pc.getContext('2d');
@@ -1341,6 +1372,12 @@ export async function compareOffers(records) {
       // Total Charge'Heures (TCH)
       datasets.push({ type: 'line', yAxisID: 'yPrice', label: "Prix TCH (€/kWh)", data: tchPriceSeries, borderColor: '#d62728', backgroundColor: '#d6272833', fill: false, tension: 0.1 });
       if (isPvEnabled) datasets.push({ type: 'line', yAxisID: 'yPrice', label: "Prix TCH (avec PV)", data: tchPricePVSeries, borderColor: '#ff9896', backgroundColor: '#ff989633', fill: false, tension: 0.1 });
+
+      // Add dynamic two-tier tariffs
+      for (const tariff of dynamicTwoTiers) {
+        const color = tariff.color || '#999999';
+        datasets.push({ type: 'line', yAxisID: 'yPrice', label: `Prix ${tariff.name} (€/kWh)`, data: dynamicTariffPriceSeries[tariff.id], borderColor: color, backgroundColor: color + '33', fill: false, tension: 0.1 });
+      }
 
       if (isPvEnabled) datasets.push({ type: 'bar', yAxisID: 'yKwh', label: 'Production PV (kWh)', data: pvProdSeries, backgroundColor: '#f1c40f55' });
 
