@@ -691,8 +691,13 @@ export async function renderMonthlyBreakdown(records) {
         return usePv ? row.tempoOptPV.total : row.tempoOpt.total;
       case 'tch':
         return usePv ? row.tchPV.total : row.tch.total;
-      default:
-        return null;
+      default: {
+        // Dynamic tariff (Octopus, Alpiq, Ecodigo, etc.)
+        const dynTariff = dynamicTwoTiers.find(t => t.id === offerId);
+        if (!dynTariff) return null;
+        const monthRecs = monthlyRecords[row.month] || [];
+        return computeTwoTierMonthlyCost(monthRecs, dynTariff);
+      }
     }
   };
 
