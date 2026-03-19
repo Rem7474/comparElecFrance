@@ -6,5 +6,6 @@
   "total-charge-heures.json",
   "octopusEnergy.json",
   "alpiq.json",
-  "injection.json"
+  "injection.json",
+  "ecodigo.json"
 ]
