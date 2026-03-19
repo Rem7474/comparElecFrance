@@ -2,14 +2,14 @@
 
 ## Contexte du projet
 Développer une application web en HTML, CSS et JavaScript permettant à un utilisateur d’importer et d’analyser ses données de consommation électrique (JSON / XLSX exporté depuis Enedis).  
-L’application doit proposer une simulation des coûts selon différents abonnements d’électricité et estimer les économies réalisables via une installation photovoltaïque selon la région et l’orientation des panneaux en France.  
+L’application doit proposer une simulation des coûts selon différents abonnements d’électricité et, en option activable, estimer les économies réalisables via une installation photovoltaïque selon la région et l’orientation des panneaux en France.  
 
 Ce projet est 100 % front-end (aucun serveur).  
 
 ---
 
 ## Objectifs principaux
-- Importer un fichier JSON (format Enedis) ou Excel/XLSX de consommation (dates, heures, kWh).  
+- Importer un fichier JSON (format Enedis) ou Excel/XLSX/CSV de consommation (dates, heures, kWh).  
 - Analyser la consommation : totaux, moyennes, pics horaires, répartitions temporelles.  
 - Comparer les coûts selon différents abonnements : Base, Heures Pleines/Creuses, Tempo, etc.  
 - Simuler la production solaire estimée selon la région, l’orientation et l’inclinaison.  
@@ -47,7 +47,7 @@ Ce projet est 100 % front-end (aucun serveur).
 - Estimation de la consommation annuelle.  
 
 ### Simulation des tarifs
-- Choix du mode tarifaire : Base / HP-HC / Tempo.  
+- Choix du mode tarifaire : Base / HP-HC / Tempo,...
 - Paramètres modifiables : puissance souscrite, prix des kWh, heures creuses/heures pleines.  
 - Calcul du coût total par formule.  
 

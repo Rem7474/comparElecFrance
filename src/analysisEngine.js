@@ -10,8 +10,7 @@ import {
   computeCostHpHc,
   computeCostTotalCharge,
   computeCostTempo,
-  computeCostTempoOptimized,
-  applyPvReduction
+  computeCostTempoOptimized
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 
@@ -87,7 +86,6 @@ export function computeMonthlyBreakdown(
 
   const months = {};
 
-  // Group by month
   for (const rec of records) {
     const date = new Date(rec.dateDebut);
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -97,9 +95,8 @@ export function computeMonthlyBreakdown(
 
   const results = [];
   const keys = Object.keys(months).sort();
-  let totalKwhByMonth = {};
-  
-  // OPTIMIZATION: Compute totals during grouping, not later in the loop
+  const totalKwhByMonth = {};
+
   for (const key of keys) {
     totalKwhByMonth[key] = months[key].reduce((sum, r) => sum + (Number(r.valeur) || 0), 0);
   }
@@ -108,20 +105,25 @@ export function computeMonthlyBreakdown(
     const recs = months[key];
     const totalKwh = totalKwhByMonth[key];
 
-    // Parse month for weight
     const parts = key.split('-');
     const monthIdx = parts.length > 1 ? Number(parts[1]) - 1 : 0;
     const monthPV = annualPvProduction * (monthlyWeights[monthIdx] || 1 / 12);
 
-    // OPTIMIZATION: Simulate PV effect once, reuse for all tariffs
     const monthSim = simulatePVEffect(recs, monthPV, exportPrice, standbyW, monthlyWeights);
     const monthSelf = Math.min(monthSim.selfConsumed, totalKwh, monthPV);
-    const importanceReduction = (monthPV - monthSelf) * exportPrice; // Cache the reduction factor
+    const monthExported = Math.max(0, monthPV - monthSelf);
+    const monthExportCredit = monthExported * exportPrice;
 
-    // OPTIMIZATION: Compute PV-reduced records ONCE instead of per tariff
-    const recsWithPV = applyPvReduction(recs, monthSelf);
+    // Keep monthly cost logic aligned with annual compareOffers():
+    // use exact per-timestamp PV allocation and keep export income separate from cost totals.
+    const recsWithPV = recs.map((rec) => {
+      const reduction = (monthSim.allocatedByTimestamp && monthSim.allocatedByTimestamp[String(rec.dateDebut)]) || 0;
+      return {
+        ...rec,
+        valeur: Math.max(0, Number(rec.valeur || 0) - reduction)
+      };
+    });
 
-    // Costs without PV
     const baseEnergy = computeCostBase(recs, defaults).cost;
     const subBase = Number(defaults.subBase) || 0;
 
@@ -135,7 +137,6 @@ export function computeMonthlyBreakdown(
     const tchEnergyObj = computeCostTotalCharge(recs, defaults.totalChargeHeures);
     const subTch = Number(defaults.totalChargeHeures?.sub) || 0;
 
-    // Costs with PV (using pre-computed records with reduction)
     const baseEnergyPV = computeCostBase(recsWithPV, defaults).cost;
     const hphcEnergyObjPV = computeCostHpHc(recsWithPV, defaults.hp, defaults.hp.hcRange);
     const tempoEnergyObjPV = computeCostTempo(recsWithPV, tempoDayMap, defaults.tempo);
@@ -147,16 +148,18 @@ export function computeMonthlyBreakdown(
       consumption: totalKwh,
       monthPV,
       monthSelf,
+      monthExported,
+      monthExportCredit,
       base: { energy: baseEnergy, total: baseEnergy + subBase },
-      basePV: { energy: baseEnergyPV, total: baseEnergyPV + subBase - importanceReduction },
+      basePV: { energy: baseEnergyPV, total: baseEnergyPV + subBase },
       hphc: { energy: hphcEnergyObj.cost, hp: hphcEnergyObj.hp, hc: hphcEnergyObj.hc, total: hphcEnergyObj.cost + subHphc },
-      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcEnergyObjPV.cost + subHphc - importanceReduction },
+      hphcPV: { energy: hphcEnergyObjPV.cost, total: hphcEnergyObjPV.cost + subHphc },
       tempo: { energy: tempoEnergyObj.cost || 0, total: (tempoEnergyObj.cost || 0) + subTempo },
-      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: (tempoEnergyObjPV.cost || 0) + subTempo - importanceReduction },
+      tempoPV: { energy: tempoEnergyObjPV.cost || 0, total: (tempoEnergyObjPV.cost || 0) + subTempo },
       tempoOpt: { energy: tempoOptEnergyObj.cost || 0, total: (tempoOptEnergyObj.cost || 0) + subTempo },
-      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: (tempoOptEnergyObjPV.cost || 0) + subTempo - importanceReduction },
+      tempoOptPV: { energy: tempoOptEnergyObjPV.cost || 0, total: (tempoOptEnergyObjPV.cost || 0) + subTempo },
       tch: { energy: tchEnergyObj.cost || 0, hp: tchEnergyObj.hp || 0, hc: tchEnergyObj.hc || 0, total: (tchEnergyObj.cost || 0) + subTch },
-      tchPV: { energy: tchEnergyObjPV.cost || 0, total: (tchEnergyObjPV.cost || 0) + subTch - importanceReduction }
+      tchPV: { energy: tchEnergyObjPV.cost || 0, total: (tchEnergyObjPV.cost || 0) + subTch }
     });
   }
 
@@ -240,6 +243,19 @@ export function calculateStandbyFromRecords(records) {
  */
 export function computeDailyTempoCostMap(records, dayMap, tempoTariff) {
   const out = {};
+  const toLocalDateKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const extractDateKeyFromRecord = (recordDateDebut, dateObj) => {
+    const raw = String(recordDateDebut || '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    return toLocalDateKey(dateObj);
+  };
+
   const getRates = (entry, colorLetter) => {
     if (entry && typeof entry === 'object' && entry.rates) {
       return { hp: Number(entry.rates.hp) || 0, hc: Number(entry.rates.hc) || 0 };
@@ -253,14 +269,14 @@ export function computeDailyTempoCostMap(records, dayMap, tempoTariff) {
   for (const rec of records) {
     const dt = new Date(rec.dateDebut);
     const h = dt.getHours();
-    const dateStr = dt.toISOString().slice(0, 10);
+    const dateStr = extractDateKeyFromRecord(rec.dateDebut, dt);
     let bucketDateStr;
     let colorLetter;
     let isHC;
     if (h < 6) {
       const prev = new Date(dt);
       prev.setDate(prev.getDate() - 1);
-      bucketDateStr = prev.toISOString().slice(0, 10);
+      bucketDateStr = toLocalDateKey(prev);
       const entryPrev = dayMap[bucketDateStr] || 'B';
       colorLetter = typeof entryPrev === 'string' ? entryPrev.toUpperCase() : ((entryPrev && entryPrev.color) ? String(entryPrev.color).toUpperCase() : 'B');
       isHC = true;

@@ -30,12 +30,19 @@ function getTempoEntryColor(entry) {
   return 'B';
 }
 
+function toLocalDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getTempoContext(recordDate, hour, dayMap) {
-  const dayStr = recordDate.toISOString().slice(0, 10);
+  const dayStr = toLocalDateKey(recordDate);
   if (hour < 6) {
     const prev = new Date(recordDate);
     prev.setDate(prev.getDate() - 1);
-    const bucket = prev.toISOString().slice(0, 10);
+    const bucket = toLocalDateKey(prev);
     return { bucketDate: bucket, entry: dayMap[bucket], isHC: true };
   }
   if (hour >= 22) {

@@ -333,24 +333,41 @@ export function mapColorToHex(col) {
  * @returns {number} Representative price in €/kWh
  */
 export function getRepresentativePriceForEntry(entry, defaults) {
+  const toNumber = (value) => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if (typeof value !== 'string') return 0;
+    const parsed = Number.parseFloat(value.replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const resolveTempoConfig = (obj) => {
+    if (!obj || typeof obj !== 'object') return {};
+    if (obj.tempo && typeof obj.tempo === 'object') return obj.tempo;
+    if (obj.blue || obj.white || obj.red) return obj;
+    return {};
+  };
+
   let rates = null;
-  if (!entry) return Number(defaults.priceBase || 0);
+  const safeDefaults = defaults || {};
+  const tempoConfig = resolveTempoConfig(safeDefaults);
+  if (!entry) return Number(safeDefaults.priceBase || 0);
   if (typeof entry === 'string') {
     const letter = entry.toUpperCase();
     const key = letter === 'B' ? 'blue' : letter === 'W' ? 'white' : letter === 'R' ? 'red' : entry.toLowerCase();
-    const def = defaults.tempo && defaults.tempo[key];
-    if (def && typeof def === 'object') rates = { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
-    else rates = { hp: Number(def) || 0, hc: Number(def) || 0 };
+    const def = tempoConfig[key];
+    if (def && typeof def === 'object') rates = { hp: toNumber(def.hp), hc: toNumber(def.hc) };
+    else rates = { hp: toNumber(def), hc: toNumber(def) };
   } else if (entry && typeof entry === 'object') {
-    if (entry.rates) rates = { hp: Number(entry.rates.hp) || 0, hc: Number(entry.rates.hc) || 0 };
+    if (entry.rates) rates = { hp: toNumber(entry.rates.hp), hc: toNumber(entry.rates.hc) };
     else if (entry.color) {
       const letter = String(entry.color || '').toUpperCase();
       const key = letter === 'B' ? 'blue' : letter === 'W' ? 'white' : letter === 'R' ? 'red' : String(entry.color || '').toLowerCase();
-      const def = defaults.tempo && defaults.tempo[key];
-      if (def) rates = { hp: Number(def.hp) || 0, hc: Number(def.hc) || 0 };
+      const def = tempoConfig[key];
+      if (def && typeof def === 'object') rates = { hp: toNumber(def.hp), hc: toNumber(def.hc) };
+      else if (def != null) rates = { hp: toNumber(def), hc: toNumber(def) };
     }
   }
-  if (!rates) return Number(defaults.priceBase || 0);
+  if (!rates) return Number(safeDefaults.priceBase || 0);
   return (Number(rates.hp) + Number(rates.hc)) / 2;
 }
 
@@ -441,6 +458,7 @@ export function renderTempoCalendarGraph(dayMap, dailyCostMap, defaults) {
         dayEl.style.background = hex;
         dayEl.textContent = String(dateObj.getDate());
         const price = getRepresentativePriceForEntry(entry, defaults);
+        dayEl.title = `${dStr} - ${colorKey} - ${price.toFixed(4)} €/kWh`;
         dayEl.addEventListener('mouseenter', (ev) => {
           tooltip.style.display = 'block';
           const info = dailyCostMap && dailyCostMap[dStr];
