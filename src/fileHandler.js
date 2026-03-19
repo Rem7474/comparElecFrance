@@ -15,8 +15,38 @@ export function parseEnedisJson(json) {
   // Enedis format: { cons: { aggregats: { heure: { donnees: [...] } } } }
   const donnees = json?.cons?.aggregats?.heure?.donnees || [];
   if (!Array.isArray(donnees)) return [];
-  
-  return donnees;
+
+  const parseValue = (value) => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string') return null;
+
+    const normalized = value
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/\u00A0/g, '')
+      .replace(',', '.');
+
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  // Normalize imported records so downstream computations can safely use Number(rec.valeur).
+  const normalizedRecords = [];
+  for (const rec of donnees) {
+    if (!rec || typeof rec !== 'object') continue;
+    if (!rec.dateDebut || !rec.dateFin) continue;
+
+    const parsedValue = parseValue(rec.valeur);
+    if (parsedValue == null) continue;
+
+    normalizedRecords.push({
+      dateDebut: rec.dateDebut,
+      dateFin: rec.dateFin,
+      valeur: parsedValue,
+    });
+  }
+
+  return normalizedRecords;
 }
 
 /**
