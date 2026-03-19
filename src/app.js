@@ -54,7 +54,7 @@ import {
 import { setupPvControls, setupPvToggle } from './pvManager.js';
 import { loadTariffs } from './tariffManager.js';
 import { loadAllTariffFiles, renderTariffCards } from './tariffDisplay.js';
-import { exportToPDF, exportToExcel, saveToHistory, getAnalysisHistory, deleteFromHistory } from './exportManager.js';
+import { exportToPDF, exportComparatifGlobalPDF, exportToExcel, saveToHistory, getAnalysisHistory, deleteFromHistory } from './exportManager.js';
 
 const prmInput = document.getElementById('input-prm');
 const dateInput = document.getElementById('input-date');
@@ -75,6 +75,7 @@ const btnThemeToggle = document.getElementById('btn-theme-toggle');
 const btnExportPdf = document.getElementById('btn-export-pdf');
 const btnExportExcel = document.getElementById('btn-export-excel');
 const btnSaveHistory = document.getElementById('btn-save-history');
+const btnExportComparatifPdf = document.getElementById('btn-export-comparatif-pdf');
 
 function applyTheme(isDark) {
   if (isDark) {
@@ -167,6 +168,29 @@ if (btnSaveHistory) {
     } catch (error) {
       console.error('Erreur sauvegarde:', error);
       alert('Erreur lors de la sauvegarde.');
+    }
+  });
+}
+
+if (btnExportComparatifPdf) {
+  btnExportComparatifPdf.addEventListener('click', async () => {
+    try {
+      btnExportComparatifPdf.disabled = true;
+      btnExportComparatifPdf.textContent = '⏳ Génération...';
+
+      const analysisData = buildCurrentAnalysisData();
+      await exportComparatifGlobalPDF(analysisData, getCurrentConsumptionData());
+
+      btnExportComparatifPdf.textContent = '✅ Exporté!';
+      setTimeout(() => {
+        btnExportComparatifPdf.textContent = '📄 Export Comparatif PDF';
+        btnExportComparatifPdf.disabled = false;
+      }, 2000);
+    } catch (error) {
+      console.error('Erreur export comparatif PDF:', error);
+      alert('Erreur lors de la génération du PDF. Vérifiez que jsPDF est chargé via CDN.');
+      btnExportComparatifPdf.textContent = '📄 Export Comparatif PDF';
+      btnExportComparatifPdf.disabled = false;
     }
   });
 }
@@ -455,6 +479,7 @@ export async function analyzeFilesNow(records) {
   if (btnExportPdf) btnExportPdf.classList.remove('hidden');
   if (btnExportExcel) btnExportExcel.classList.remove('hidden');
   if (btnSaveHistory) btnSaveHistory.classList.remove('hidden');
+  if (btnExportComparatifPdf) btnExportComparatifPdf.classList.remove('hidden');
 
   appendLog(analysisLog, 'Démarrage de l\'analyse...');
   if (!records || records.length === 0) {

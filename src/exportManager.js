@@ -14,14 +14,14 @@
  */
 export async function exportToPDF(analysisData, consumptionData, offers) {
   try {
-    // Check if jsPDF is available
-    if (typeof window.jsPDF === 'undefined') {
+    // Check if jsPDF is available (UMD build exports to window.jspdf)
+    if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
       console.error('jsPDF library not loaded. Please include it via CDN.');
       alert('Erreur: Bibliothèque jsPDF non chargée. Contactez support.');
       return;
     }
 
-    const { jsPDF } = window;
+    const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -142,6 +142,121 @@ export async function exportToPDF(analysisData, consumptionData, offers) {
     pdf.save(`analyse-electricite-${analysisDate.replace(/\//g, '-')}.pdf`);
   } catch (error) {
     console.error('Erreur lors de l\'export PDF:', error);
+    alert('Erreur lors de la génération du PDF. Veuillez réessayer.');
+  }
+}
+
+/**
+ * Export global tariff comparison as PDF
+ * @param {Object} analysisData - Analysis data with offers array
+ * @param {Object} consumptionData - Consumption statistics
+ * @returns {Promise<void>} Downloads PDF file
+ */
+export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
+  try {
+    if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
+      alert('Erreur: Bibliothèque jsPDF non chargée. Contactez support.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 14;
+    let y = margin;
+
+    // Title
+    pdf.setFontSize(18);
+    pdf.setTextColor(41, 128, 185);
+    pdf.text('Comparatif des Offres Électriques', margin, y);
+    y += 8;
+
+    pdf.setFontSize(9);
+    pdf.setTextColor(100, 100, 100);
+    const reportDate = new Date().toLocaleDateString('fr-FR');
+    pdf.text(`Rapport généré le: ${reportDate}`, margin, y);
+    y += 10;
+
+    // Consumption summary
+    pdf.setFontSize(11);
+    pdf.setTextColor(30, 30, 30);
+    pdf.text('Consommation', margin, y);
+    y += 6;
+    pdf.setFontSize(9);
+    if (consumptionData?.total) {
+      pdf.text(`Consommation annuelle: ${consumptionData.total.toFixed(0)} kWh`, margin, y);
+      y += 5;
+    }
+    if (consumptionData?.avg !== undefined) {
+      pdf.text(`Moyenne horaire: ${consumptionData.avg.toFixed(3)} kWh`, margin, y);
+      y += 5;
+    }
+    y += 4;
+
+    // Offers comparison table
+    pdf.setFontSize(11);
+    pdf.setTextColor(30, 30, 30);
+    pdf.text('Comparatif des Offres', margin, y);
+    y += 5;
+
+    const offers = analysisData?.offers || [];
+    if (offers.length > 0) {
+      const hasPV = offers.some(o => o.costWithPV && o.costWithPV !== o.costNoPV);
+      const head = hasPV
+        ? [['Offre', 'Coût annuel (€)', 'Avec PV (€)', 'Économies PV (€)']]
+        : [['Offre', 'Coût annuel (€)']];
+
+      const body = offers.map(o => {
+        const row = [o.name || 'N/A', (o.costNoPV || 0).toFixed(2)];
+        if (hasPV) {
+          row.push((o.costWithPV || 0).toFixed(2));
+          row.push((o.savings || 0).toFixed(2));
+        }
+        return row;
+      });
+
+      pdf.autoTable({
+        startY: y,
+        head,
+        body,
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [240, 248, 255] }
+      });
+
+      y = pdf.lastAutoTable.finalY + 8;
+    } else {
+      pdf.setFontSize(9);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text('Aucune offre calculée.', margin, y);
+      y += 8;
+    }
+
+    // PV section if available
+    if (analysisData?.pvConfig?.kwp) {
+      if (y > pageHeight - 50) { pdf.addPage(); y = margin; }
+      pdf.setFontSize(11);
+      pdf.setTextColor(30, 30, 30);
+      pdf.text('Simulation Photovoltaïque', margin, y);
+      y += 6;
+      pdf.setFontSize(9);
+      const pv = analysisData.pvConfig;
+      if (pv.kwp) { pdf.text(`Puissance installée: ${pv.kwp} kWp`, margin, y); y += 5; }
+      if (pv.region) { pdf.text(`Région: ${pv.region}`, margin, y); y += 5; }
+      if (pv.annualProduction) { pdf.text(`Production annuelle estimée: ${pv.annualProduction.toFixed(0)} kWh`, margin, y); y += 5; }
+      if (pv.autoconsumptionRate) { pdf.text(`Taux autoconsommation: ${(pv.autoconsumptionRate * 100).toFixed(1)}%`, margin, y); y += 5; }
+    }
+
+    // Footer
+    pdf.setFontSize(7);
+    pdf.setTextColor(150, 150, 150);
+    pdf.text('Rapport à titre indicatif. Les tarifs peuvent varier.', margin, pageHeight - 5);
+
+    pdf.save(`comparatif-offres-${reportDate.replace(/\//g, '-')}.pdf`);
+  } catch (error) {
+    console.error('Erreur lors de l\'export PDF comparatif:', error);
     alert('Erreur lors de la génération du PDF. Veuillez réessayer.');
   }
 }
