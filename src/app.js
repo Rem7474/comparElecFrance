@@ -1519,12 +1519,22 @@ export async function compareOffers(records) {
     const pvProdSeries = monthly.map((m) => m.monthPV || 0);
     
     // Calculate average prices for dynamic two-tier tariffs
+    // Use energy-only cost (no subscription) to match hardcoded tariffs (m.base.energy / consumption)
+    // Including subscription distorts partial months: full sub / small consumption → artificial spike
     const dynamicTariffPriceSeries = {};
     for (const tariff of dynamicTwoTiers) {
       dynamicTariffPriceSeries[tariff.id] = monthly.map((m) => {
+        if (m.consumption <= 0) return null;
         const monthRecords = monthlyRecords[m.month] || [];
-        const totalCost = computeTwoTierMonthlyCost(monthRecords, tariff);
-        return m.consumption > 0 ? totalCost / m.consumption : null;
+        let hp = 0, hc = 0;
+        for (const rec of monthRecords) {
+          const hour = new Date(rec.dateDebut).getHours();
+          const value = Number(rec.valeur) || 0;
+          if (isHourHC(hour, tariff.hcRange || '22-06')) hc += value;
+          else hp += value;
+        }
+        const energyCost = hp * (tariff.php || 0) + hc * (tariff.phc || 0);
+        return energyCost / m.consumption;
       });
     }
     
