@@ -147,7 +147,8 @@ export async function exportToPDF(analysisData, consumptionData, offers) {
 }
 
 /**
- * Export global tariff comparison as PDF
+ * Export full report as PDF — all charts and data from the page
+ * Uses canvas.toDataURL() for Chart.js charts and html2canvas for HTML sections
  * @param {Object} analysisData - Analysis data with offers array
  * @param {Object} consumptionData - Consumption statistics
  * @returns {Promise<void>} Downloads PDF file
@@ -158,47 +159,103 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
       alert('Erreur: Bibliothèque jsPDF non chargée. Contactez support.');
       return;
     }
+    if (typeof window.html2canvas === 'undefined') {
+      alert('Erreur: Bibliothèque html2canvas non chargée. Contactez support.');
+      return;
+    }
 
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 14;
+    const pW = pdf.internal.pageSize.getWidth();
+    const pH = pdf.internal.pageSize.getHeight();
+    const margin = 12;
+    const contentW = pW - 2 * margin;
     let y = margin;
+    const reportDate = new Date().toLocaleDateString('fr-FR');
 
-    // Title
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    const checkPage = (needed) => {
+      if (y + needed > pH - margin) { pdf.addPage(); y = margin; }
+    };
+
+    const sectionTitle = (text) => {
+      checkPage(10);
+      pdf.setFontSize(12);
+      pdf.setTextColor(41, 128, 185);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(text, margin, y);
+      pdf.setFont(undefined, 'normal');
+      pdf.setTextColor(30, 30, 30);
+      y += 7;
+    };
+
+    // Add a canvas element (Chart.js) as image — side-by-side or full width
+    const addCanvas = (canvasId, imgW, offsetX) => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || canvas.width === 0 || canvas.height === 0) return 0;
+      const imgH = (imgW * canvas.height) / canvas.width;
+      checkPage(imgH + 4);
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', offsetX ?? margin, y, imgW, imgH);
+      return imgH;
+    };
+
+    // Add a pair of canvases side by side
+    const addCanvasPair = async (id1, label1, id2, label2) => {
+      const halfW = (contentW - 4) / 2;
+      checkPage(8);
+      pdf.setFontSize(8); pdf.setTextColor(80, 80, 80);
+      pdf.text(label1, margin, y); pdf.text(label2, margin + halfW + 4, y);
+      y += 4;
+      const h1 = addCanvas(id1, halfW, margin);
+      const h2 = addCanvas(id2, halfW, margin + halfW + 4);
+      y += Math.max(h1, h2) + 5;
+    };
+
+    // Capture an HTML element via html2canvas and add as image
+    const addElement = async (elementId, scale = 1.8) => {
+      const el = document.getElementById(elementId);
+      if (!el || el.offsetHeight === 0) return;
+      const snap = await window.html2canvas(el, {
+        scale,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false
+      });
+      const imgH = (contentW * snap.height) / snap.width;
+      checkPage(imgH + 4);
+      pdf.addImage(snap.toDataURL('image/png'), 'PNG', margin, y, contentW, imgH);
+      y += imgH + 5;
+    };
+
+    // ── PAGE 1 : titre + consommation + profils ───────────────────────────────
+
     pdf.setFontSize(18);
     pdf.setTextColor(41, 128, 185);
-    pdf.text('Comparatif des Offres Électriques', margin, y);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('Rapport ComparatifElec', margin, y);
+    pdf.setFont(undefined, 'normal');
+    y += 7;
+
+    pdf.setFontSize(9); pdf.setTextColor(100, 100, 100);
+    pdf.text(`Généré le ${reportDate}`, margin, y);
     y += 8;
 
-    pdf.setFontSize(9);
-    pdf.setTextColor(100, 100, 100);
-    const reportDate = new Date().toLocaleDateString('fr-FR');
-    pdf.text(`Rapport généré le: ${reportDate}`, margin, y);
-    y += 10;
-
-    // Consumption summary
-    pdf.setFontSize(11);
-    pdf.setTextColor(30, 30, 30);
-    pdf.text('Consommation', margin, y);
-    y += 6;
-    pdf.setFontSize(9);
+    // Metric: total consumption
     if (consumptionData?.total) {
-      pdf.text(`Consommation annuelle: ${consumptionData.total.toFixed(0)} kWh`, margin, y);
-      y += 5;
+      pdf.setFontSize(10); pdf.setTextColor(30, 30, 30);
+      pdf.text(`Consommation annuelle : ${consumptionData.total.toFixed(0)} kWh`, margin, y);
+      y += 6;
     }
-    if (consumptionData?.avg !== undefined) {
-      pdf.text(`Moyenne horaire: ${consumptionData.avg.toFixed(3)} kWh`, margin, y);
-      y += 5;
-    }
-    y += 4;
 
-    // Offers comparison table
-    pdf.setFontSize(11);
-    pdf.setTextColor(30, 30, 30);
-    pdf.text('Comparatif des Offres', margin, y);
-    y += 5;
+    y += 3;
+    sectionTitle('Profil de consommation');
+    await addCanvasPair('hourly-chart', 'Profil Horaire Moyen', 'hp-hc-pie', 'Répartition HP / HC');
+
+    // ── Comparatif des offres (table + graphiques) ────────────────────────────
+
+    sectionTitle('Comparatif des Offres & Économies');
 
     const offers = analysisData?.offers || [];
     if (offers.length > 0) {
@@ -206,16 +263,11 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
       const head = hasPV
         ? [['Offre', 'Coût annuel (€)', 'Avec PV (€)', 'Économies PV (€)']]
         : [['Offre', 'Coût annuel (€)']];
-
       const body = offers.map(o => {
         const row = [o.name || 'N/A', (o.costNoPV || 0).toFixed(2)];
-        if (hasPV) {
-          row.push((o.costWithPV || 0).toFixed(2));
-          row.push((o.savings || 0).toFixed(2));
-        }
+        if (hasPV) { row.push((o.costWithPV || 0).toFixed(2)); row.push((o.savings || 0).toFixed(2)); }
         return row;
       });
-
       pdf.autoTable({
         startY: y,
         head,
@@ -225,38 +277,78 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
         headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [240, 248, 255] }
       });
-
-      y = pdf.lastAutoTable.finalY + 8;
-    } else {
-      pdf.setFontSize(9);
-      pdf.setTextColor(150, 150, 150);
-      pdf.text('Aucune offre calculée.', margin, y);
-      y += 8;
+      y = pdf.lastAutoTable.finalY + 6;
     }
 
-    // PV section if available
-    if (analysisData?.pvConfig?.kwp) {
-      if (y > pageHeight - 50) { pdf.addPage(); y = margin; }
-      pdf.setFontSize(11);
-      pdf.setTextColor(30, 30, 30);
-      pdf.text('Simulation Photovoltaïque', margin, y);
-      y += 6;
-      pdf.setFontSize(9);
+    await addCanvasPair('offers-chart', 'Coût Annuel Comparé', 'price-pv-chart', 'Prix Moyen Mensuel (€/kWh)');
+
+    // ── Détail mensuel ────────────────────────────────────────────────────────
+
+    sectionTitle('Détail Mensuel');
+    await addCanvasPair('monthly-chart', 'Coût Mensuel par Offre', 'monthly-savings-chart', 'Économies Mensuelles (PV)');
+
+    // Monthly HTML table
+    const monthlyTable = document.getElementById('monthly-results');
+    if (monthlyTable && monthlyTable.innerHTML.trim()) {
+      checkPage(20);
+      pdf.setFontSize(8); pdf.setTextColor(80, 80, 80);
+      pdf.text('Tableau mensuel détaillé', margin, y); y += 4;
+      await addElement('monthly-results', 1.5);
+    }
+
+    // ── Simulation PV ─────────────────────────────────────────────────────────
+
+    const pvSection = document.getElementById('pv-settings-container');
+    const isPvVisible = pvSection && pvSection.style.display !== 'none';
+
+    if (isPvVisible && analysisData?.pvConfig?.kwp) {
+      sectionTitle('Simulation Photovoltaïque');
+      pdf.setFontSize(9); pdf.setTextColor(30, 30, 30);
       const pv = analysisData.pvConfig;
-      if (pv.kwp) { pdf.text(`Puissance installée: ${pv.kwp} kWp`, margin, y); y += 5; }
-      if (pv.region) { pdf.text(`Région: ${pv.region}`, margin, y); y += 5; }
-      if (pv.annualProduction) { pdf.text(`Production annuelle estimée: ${pv.annualProduction.toFixed(0)} kWh`, margin, y); y += 5; }
-      if (pv.autoconsumptionRate) { pdf.text(`Taux autoconsommation: ${(pv.autoconsumptionRate * 100).toFixed(1)}%`, margin, y); y += 5; }
+      const pvLines = [
+        `Puissance installée : ${pv.kwp} kWp`,
+        `Région : ${pv.region || 'N/A'}`,
+        pv.annualProduction ? `Production annuelle estimée : ${pv.annualProduction.toFixed(0)} kWh` : null,
+        pv.autoconsumptionRate ? `Taux autoconsommation : ${(pv.autoconsumptionRate * 100).toFixed(1)}%` : null
+      ].filter(Boolean);
+      for (const line of pvLines) { checkPage(6); pdf.text(line, margin, y); y += 5; }
+      y += 3;
+
+      // PV chart (injected canvas inside pv-chart-container)
+      const pvChartContainer = document.getElementById('pv-chart-container');
+      if (pvChartContainer && pvChartContainer.querySelector('canvas')) {
+        const pvCanvas = pvChartContainer.querySelector('canvas');
+        if (pvCanvas && pvCanvas.width > 0) {
+          checkPage(60);
+          pdf.setFontSize(8); pdf.setTextColor(80, 80, 80);
+          pdf.text('Production vs Consommation PV', margin, y); y += 4;
+          const imgH = (contentW * pvCanvas.height) / pvCanvas.width;
+          pdf.addImage(pvCanvas.toDataURL('image/png'), 'PNG', margin, y, contentW, imgH);
+          y += imgH + 5;
+        }
+      }
+
+      // PV profitability report
+      const pvReportSec = document.getElementById('pv-report-section');
+      if (pvReportSec && !pvReportSec.classList.contains('hidden')) {
+        sectionTitle('Rapport de Rentabilité Photovoltaïque');
+        await addElement('pv-report-content', 1.5);
+      }
     }
 
-    // Footer
-    pdf.setFontSize(7);
-    pdf.setTextColor(150, 150, 150);
-    pdf.text('Rapport à titre indicatif. Les tarifs peuvent varier.', margin, pageHeight - 5);
+    // ── Footer sur chaque page ────────────────────────────────────────────────
 
-    pdf.save(`comparatif-offres-${reportDate.replace(/\//g, '-')}.pdf`);
+    const totalPages = pdf.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(7); pdf.setTextColor(150, 150, 150);
+      pdf.text('Rapport à titre indicatif. ComparatifElec — Client-side only.', margin, pH - 5);
+      pdf.text(`Page ${i} / ${totalPages}`, pW - margin - 20, pH - 5);
+    }
+
+    pdf.save(`rapport-complet-electricite-${reportDate.replace(/\//g, '-')}.pdf`);
   } catch (error) {
-    console.error('Erreur lors de l\'export PDF comparatif:', error);
+    console.error('Erreur lors de l\'export PDF complet:', error);
     alert('Erreur lors de la génération du PDF. Veuillez réessayer.');
   }
 }

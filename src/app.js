@@ -183,7 +183,7 @@ if (btnExportComparatifPdf) {
 
       btnExportComparatifPdf.textContent = '✅ Exporté!';
       setTimeout(() => {
-        btnExportComparatifPdf.textContent = '📄 Export Comparatif PDF';
+        btnExportComparatifPdf.textContent = '📄 Export Rapport Complet PDF';
         btnExportComparatifPdf.disabled = false;
       }, 2000);
     } catch (error) {
