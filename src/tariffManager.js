@@ -62,7 +62,7 @@ export function mapTariffToDefaults(tariffJson, DEFAULTS) {
       if (tariffJson.subscriptions) DEFAULTS.octopusEnergy.sub = Number(Object.values(tariffJson.subscriptions)[0]) || DEFAULTS.octopusEnergy.sub;
       return true;
     }
-    if (id === 'hphc' || tariffJson.type === 'two-tier') {
+    if (id === 'hphc') {
       if (tariffJson.php != null) DEFAULTS.hp.php = tariffJson.php;
       if (tariffJson.phc != null) DEFAULTS.hp.phc = tariffJson.phc;
       if (tariffJson.hcRange) DEFAULTS.hp.hcRange = tariffJson.hcRange;

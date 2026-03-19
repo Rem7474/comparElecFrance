@@ -315,6 +315,14 @@ function updateSubscriptionDefault(kva) {
   DEFAULTS.hp.sub = hp;
   DEFAULTS.tempo.sub = tempo;
 
+  // Mise à jour de l'abonnement TCH selon le kVA sélectionné
+  const tchTariff = (appState.getState().loadedTariffs || []).find((t) => t.id === 'totalCharge');
+  if (tchTariff && tchTariff.subscriptions) {
+    const kvaStr = String(safeKva);
+    const tchSub = Number(tchTariff.subscriptions[kvaStr] != null ? tchTariff.subscriptions[kvaStr] : Object.values(tchTariff.subscriptions)[0]) || 15.65;
+    DEFAULTS.totalChargeHeures.sub = tchSub;
+  }
+
   const inpBase = document.getElementById('param-sub-base');
   const inpHp = document.getElementById('param-sub-hphc');
   const inpTempo = document.getElementById('param-sub-tempo');
@@ -529,7 +537,9 @@ function computeTwoTierMonthlyCost(monthRecords, tariffMeta) {
       hp += value;
     }
   }
-  const sub = (tariffMeta.subscriptions && tariffMeta.subscriptions[Object.keys(tariffMeta.subscriptions)[0]]) || 0;
+  const selectedKva = String(Number(appState.currentKva) || 6);
+  const subs = tariffMeta.subscriptions || {};
+  const sub = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
   return hp * tariffMeta.php + hc * tariffMeta.phc + sub;
 }
 
@@ -1703,7 +1713,15 @@ setupPvControls(DEFAULTS, triggerFullRecalculation, calculateStandbyFromRecords)
 setupPvToggle(triggerFullRecalculation);
 
 // Load tariff files from tariffs/ directory and render visual cards
-loadTariffs(DEFAULTS, (msg) => appendLog(analysisLog, msg), (state, reason) => appState.setState(state, reason), () => populateDefaultsDisplayUI(DEFAULTS));
+loadTariffs(DEFAULTS, (msg) => appendLog(analysisLog, msg), (state, reason) => appState.setState(state, reason), () => populateDefaultsDisplayUI(DEFAULTS)).then(() => {
+  // Synchronise l'abonnement TCH avec le kVA courant après chargement des tarifs
+  const currentKva = Number(appState.currentKva) || 6;
+  const tchTariff = (appState.getState().loadedTariffs || []).find((t) => t.id === 'totalCharge');
+  if (tchTariff && tchTariff.subscriptions) {
+    const kvaStr = String(currentKva);
+    DEFAULTS.totalChargeHeures.sub = Number(tchTariff.subscriptions[kvaStr] != null ? tchTariff.subscriptions[kvaStr] : Object.values(tchTariff.subscriptions)[0]) || 15.65;
+  }
+});
 
 // Load and render tariff cards UI
 (async () => {
