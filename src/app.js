@@ -114,7 +114,7 @@ if (btnExportPdf) {
       
       btnExportPdf.textContent = '✅ Exporté!';
       setTimeout(() => {
-        btnExportPdf.textContent = '📄 Export PDF';
+        btnExportPdf.textContent = '📄 Export PDF Solaire';
         btnExportPdf.disabled = false;
       }, 2000);
     } catch (error) {
@@ -509,7 +509,7 @@ export async function analyzeFilesNow(records) {
     }
   }
 
-  appState.setState({ detectedKva: recommendedKva }, 'POWER_DETECTED');
+  appState.setState({ detectedKva: recommendedKva, stats: { total: stats.total, avg: stats.avg } }, 'POWER_DETECTED');
 
   const kvaInfo = document.getElementById('power-detected-info');
   if (kvaInfo) kvaInfo.textContent = `Max: ${maxPowerKw.toFixed(1)} kW (Standard: ${recommendedKva} kVA)`;
@@ -1277,7 +1277,13 @@ export async function compareOffers(records) {
   const bestId = validBest ? validBest.id : null;
   const worstOffer = worstByCost || null;
 
-  appState.setState({ bestOfferId: bestId }, 'compareOffers');
+  appState.setState({
+    bestOfferId: bestId,
+    offers: offers.map(o => ({ ...o })),
+    annualPvProduction: annualProduction,
+    autoconsumptionRate: annualProduction > 0 ? pvSim.selfConsumed / annualProduction : 0,
+    pvSavings: exportIncome
+  }, 'compareOffers');
 
   // Consistent color mapping based on offer ID, not index
   const getOfferColor = (offerId, offerColor) => {
@@ -1608,7 +1614,7 @@ function buildCurrentAnalysisData() {
       name: o.name || 'N/A',
       costNoPV: o.costNoPV || 0,
       costWithPV: o.costWithPV || 0,
-      savings: o.savings || 0,
+      savings: (o.costNoPV || 0) - (o.costWithPV || 0),
       color: o.color || '#999'
     })),
     rawRecords: records.slice(0, 365) // First 365 records
