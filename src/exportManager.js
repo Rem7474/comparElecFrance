@@ -28,7 +28,6 @@ export async function exportToPDF(analysisData, consumptionData, offers) {
       format: 'a4'
     });
 
-    const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 10;
     let yPosition = margin;
@@ -250,8 +249,11 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
         ? Array.from(headRow.querySelectorAll('th')).map(th => th.textContent.trim())
         : [];
 
+      // Replace non-breaking spaces (\u00A0) used by fr-FR toLocaleString — unsupported by jsPDF Helvetica
+      const cleanCell = (td) => td.textContent.trim().replace(/\u00A0/g, '\u0020');
+
       const bodyRows = Array.from(table.querySelectorAll('tr')).slice(1).map(tr =>
-        Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim())
+        Array.from(tr.querySelectorAll('td')).map(cleanCell)
       ).filter(r => r.some(cell => cell !== ''));
 
       if (headers.length === 0 && bodyRows.length === 0) return;
