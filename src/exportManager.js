@@ -213,7 +213,7 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
       y += Math.max(h1, h2) + 5;
     };
 
-    // Capture an HTML element via html2canvas and add as image
+    // Capture an HTML element via html2canvas — forces light mode in the clone
     const addElement = async (elementId, scale = 1.8) => {
       const el = document.getElementById(elementId);
       if (!el || el.offsetHeight === 0) return;
@@ -221,12 +221,70 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
         scale,
         useCORS: true,
         backgroundColor: '#ffffff',
-        logging: false
+        logging: false,
+        onclone: (clonedDoc) => {
+          // Remove dark-mode so CSS variables resolve to light-mode colours
+          clonedDoc.body.classList.remove('dark-mode');
+          const clonedEl = clonedDoc.getElementById(elementId);
+          if (clonedEl) {
+            clonedEl.style.background = '#ffffff';
+            clonedEl.style.color = '#222222';
+          }
+        }
       });
       const imgH = (contentW * snap.height) / snap.width;
       checkPage(imgH + 4);
       pdf.addImage(snap.toDataURL('image/png'), 'PNG', margin, y, contentW, imgH);
       y += imgH + 5;
+    };
+
+    // Extract an HTML <table> from a container and render it with autoTable
+    const addDomTableAsAutoTable = (containerId) => {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const table = container.querySelector('table');
+      if (!table) return;
+
+      const headRow = table.querySelector('tr');
+      const headers = headRow
+        ? Array.from(headRow.querySelectorAll('th')).map(th => th.textContent.trim())
+        : [];
+
+      const bodyRows = Array.from(table.querySelectorAll('tr')).slice(1).map(tr =>
+        Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim())
+      ).filter(r => r.some(cell => cell !== ''));
+
+      if (headers.length === 0 && bodyRows.length === 0) return;
+
+      // Landscape-friendly: use a landscape page for wide tables
+      const colCount = headers.length || (bodyRows[0]?.length ?? 0);
+      if (colCount > 7) {
+        pdf.addPage('a4', 'landscape');
+        y = margin;
+      } else {
+        checkPage(20);
+      }
+
+      pdf.setFontSize(8); pdf.setTextColor(80, 80, 80);
+      pdf.text('Tableau mensuel détaillé', margin, y); y += 4;
+
+      pdf.autoTable({
+        startY: y,
+        head: headers.length > 0 ? [headers] : undefined,
+        body: bodyRows,
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 6.5, cellPadding: 1.5, overflow: 'linebreak' },
+        headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', fontSize: 6.5 },
+        alternateRowStyles: { fillColor: [240, 248, 255] },
+        didDrawPage: () => { y = margin; }
+      });
+      y = pdf.lastAutoTable.finalY + 6;
+
+      // Switch back to portrait if we switched to landscape
+      if (colCount > 7) {
+        pdf.addPage('a4', 'portrait');
+        y = margin;
+      }
     };
 
     // ── PAGE 1 : titre + consommation + profils ───────────────────────────────
@@ -287,13 +345,10 @@ export async function exportComparatifGlobalPDF(analysisData, consumptionData) {
     sectionTitle('Détail Mensuel');
     await addCanvasPair('monthly-chart', 'Coût Mensuel par Offre', 'monthly-savings-chart', 'Économies Mensuelles (PV)');
 
-    // Monthly HTML table
+    // Monthly HTML table — extracted directly from DOM to avoid html2canvas colour issues
     const monthlyTable = document.getElementById('monthly-results');
-    if (monthlyTable && monthlyTable.innerHTML.trim()) {
-      checkPage(20);
-      pdf.setFontSize(8); pdf.setTextColor(80, 80, 80);
-      pdf.text('Tableau mensuel détaillé', margin, y); y += 4;
-      await addElement('monthly-results', 1.5);
+    if (monthlyTable && monthlyTable.querySelector('table')) {
+      addDomTableAsAutoTable('monthly-results');
     }
 
     // ── Simulation PV ─────────────────────────────────────────────────────────
