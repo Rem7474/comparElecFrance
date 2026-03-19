@@ -536,7 +536,7 @@ function computeTwoTierMonthlyCost(monthRecords, tariffMeta) {
 export async function renderMonthlyBreakdown(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
-    alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
+    alert('Sélectionnez d\'abord un fichier de données (JSON ou CSV) via le sélecteur de fichiers.');
     return;
   }
 
@@ -886,7 +886,7 @@ export async function renderMonthlyBreakdown(records) {
 export async function runPvSimulation(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
-    alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
+    alert('Sélectionnez d\'abord un fichier de données (JSON ou CSV) via le sélecteur de fichiers.');
     return;
   }
 
@@ -983,12 +983,14 @@ const btnExportReport = document.getElementById('btn-export-report');
 if (btnExportReport) {
   btnExportReport.addEventListener('click', async () => {
     const files = fileInput && fileInput.files;
-    if (!files || files.length === 0) {
-      alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
+    appendLog(analysisLog, 'Génération du rapport...');
+    const records = (files && files.length > 0)
+      ? await getRecordsFromCache(files)
+      : (appState.records || []);
+    if (!records || records.length === 0) {
+      alert('Sélectionnez d\'abord un fichier de données (JSON ou CSV) via le sélecteur de fichiers.');
       return;
     }
-    appendLog(analysisLog, 'Génération du rapport...');
-    const records = await getRecordsFromCache(files);
     const stats = computeHourlyStats(records);
     const report = {
       generatedAt: new Date().toISOString(),
@@ -1100,7 +1102,7 @@ function calculateOfferCost(tariffMeta, DEFAULTS, recs, recsWithPV, perHourAnnua
 export async function compareOffers(records) {
   const recs = records || appState.records;
   if (!recs || recs.length === 0) {
-    alert('Sélectionnez d\'abord un fichier JSON via le sélecteur de fichiers.');
+    alert('Sélectionnez d\'abord un fichier de données (JSON ou CSV) via le sélecteur de fichiers.');
     return;
   }
 

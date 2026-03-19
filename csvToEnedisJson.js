@@ -39,6 +39,21 @@
     return out;
   }
 
+  function detectDelimiter(text){
+    const firstLine = String(text || '').split(/\r?\n/)[0] || '';
+    const candidates = [';', ',', '\t'];
+    let best = ';';
+    let bestScore = -1;
+    for (const candidate of candidates) {
+      const score = firstLine.split(candidate).length;
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
   function pad2(n){ return String(n).padStart(2,'0'); }
 
   function toLocalIso(d){
@@ -57,30 +72,67 @@
   }
 
   function parseFrDatetime(str){
-    // Expect: DD/MM/YYYY HH:mm:ss
-    const m = String(str).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
-    if(!m) return null;
-    const dd = parseInt(m[1],10); const MM = parseInt(m[2],10)-1; const yyyy = parseInt(m[3],10);
-    const hh = parseInt(m[4],10); const mm = parseInt(m[5],10); const ss = parseInt(m[6],10);
-    const d = new Date(yyyy, MM, dd, hh, mm, ss);
-    return isNaN(d.getTime()) ? null : d;
+    const value = String(str || '').trim();
+    if(!value) return null;
+
+    // DD/MM/YYYY HH:mm[:ss] (with : or h separator)
+    let m = value.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2})[:h](\d{2})(?::(\d{2}))?)?$/i);
+    if(m){
+      const dd = parseInt(m[1],10);
+      const MM = parseInt(m[2],10)-1;
+      const yyyy = parseInt(m[3],10);
+      const hh = parseInt(m[4] || '0',10);
+      const mm = parseInt(m[5] || '0',10);
+      const ss = parseInt(m[6] || '0',10);
+      const d = new Date(yyyy, MM, dd, hh, mm, ss);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // YYYY-MM-DD HH:mm[:ss] or ISO strings
+    m = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(?:Z|[+-]\d{2}:?\d{2})?$/);
+    if(m){
+      const parsed = new Date(value);
+      if(!isNaN(parsed.getTime())) return parsed;
+
+      const yyyy = parseInt(m[1],10);
+      const MM = parseInt(m[2],10)-1;
+      const dd = parseInt(m[3],10);
+      const hh = parseInt(m[4] || '0',10);
+      const mm = parseInt(m[5] || '0',10);
+      const ss = parseInt(m[6] || '0',10);
+      const d = new Date(yyyy, MM, dd, hh, mm, ss);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    const fallback = new Date(value);
+    return isNaN(fallback.getTime()) ? null : fallback;
   }
 
   function parseConsumptionValue(s){
-    // Examples: "0.991 kWh", "1,045 kWh", "991 Wh"
-    const raw = String(s||'').replace(/\s+/g,' ').trim();
-    const m = raw.match(/^([0-9]+[\.,]?[0-9]*)\s*(kWh|Wh)?$/i);
-    if(!m){
-      // try to strip trailing unit words
-      const cleaned = raw.replace(/kWh|Wh|kW|W/gi,'').replace(',', '.').trim();
-      const v = parseFloat(cleaned);
-      return isNaN(v) ? null : v;
+    // Examples: "0.991 kWh", "1,045 kWh", "1 234,56 kWh", "991 Wh"
+    const raw = String(s || '').replace(/\u00A0/g, ' ').trim();
+    if(!raw) return null;
+
+    const unitMatch = raw.match(/(kwh|wh|kw|w)\b/i);
+    const unit = unitMatch ? unitMatch[1].toLowerCase() : 'kwh';
+    let numericPart = raw.replace(/(kwh|wh|kw|w)\b/gi, '').trim();
+    numericPart = numericPart.replace(/\s+/g, '');
+
+    if(numericPart.includes(',') && numericPart.includes('.')){
+      // Keep last separator as decimal and strip the other as thousands separator.
+      if(numericPart.lastIndexOf(',') > numericPart.lastIndexOf('.')){
+        numericPart = numericPart.replace(/\./g, '').replace(',', '.');
+      } else {
+        numericPart = numericPart.replace(/,/g, '');
+      }
+    } else if(numericPart.includes(',')){
+      numericPart = numericPart.replace(',', '.');
     }
-    const num = parseFloat(m[1].replace(',', '.'));
-    const unit = (m[2]||'kWh').toLowerCase();
+
+    const num = parseFloat(numericPart);
     if(isNaN(num)) return null;
-    if(unit === 'wh') return num / 1000;
-    return num; // kWh by default
+    if(unit === 'wh' || unit === 'w') return num / 1000;
+    return num;
   }
 
   function detectStepMinutes(dateList){
@@ -98,18 +150,18 @@
     const s = stripBOM(String(text||''));
     const firstLine = s.split(/\r?\n/)[0] || '';
     const h = firstLine.replace(/"/g,'').trim().toLowerCase();
-    return h.includes('énergie') && h.includes('date') && h.includes('consommation');
+    return (h.includes('énergie') || h.includes('energie') || h.includes('energy')) && h.includes('date') && (h.includes('consommation') || h.includes('consumption') || h.includes('conso'));
   }
 
   function csvToEnedisJson(text){
     const raw = stripBOM(String(text||''));
-    const rows = parseCsvLines(raw, ';');
+    const delimiter = detectDelimiter(raw);
+    const rows = parseCsvLines(raw, delimiter);
     if(!rows.length) throw new Error('CSV vide');
     const header = rows[0].map(c=> trimQuotes(c).trim());
     const lower = header.map(h=> h.toLowerCase());
-    const idxE = lower.findIndex(h=> h.includes('énergie') || h.includes('energie'));
     const idxD = lower.findIndex(h=> h.includes('date'));
-    const idxC = lower.findIndex(h=> h.includes('consommation'));
+    const idxC = lower.findIndex(h=> h.includes('consommation') || h.includes('consumption') || h.includes('conso') || h.includes('valeur') || h.includes('value'));
     if(idxD < 0 || idxC < 0) throw new Error('Entêtes manquantes (Date; Consommation)');
 
     const items = [];
