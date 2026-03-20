@@ -1,8 +1,12 @@
 /**
- * fileHandler.js - File parsing and data validation module
- * Handles importing consumption files in JSON and CSV formats
+ * fileHandler.js - File parsing, data validation, and record caching
+ * Handles importing consumption files in JSON and CSV formats,
+ * plus buildFileCacheKey / parseFilesToRecords / getRecordsFromCache.
  * @module fileHandler
  */
+
+import { appState } from './state.js';
+import { appendLog, getAnalysisLog } from './logger.js';
 
 /**
  * Parse Enedis JSON format
@@ -180,18 +184,106 @@ export async function parseMultipleFiles(files) {
   if (!files || files.length === 0) {
     throw new Error('No files provided');
   }
-  
+
   const allRecords = [];
-  
+
   for (let i = 0; i < files.length; i++) {
     const records = await parseFile(files[i]);
     allRecords.push(...records);
   }
-  
+
   // Final deduplication and sort across all files
   const deduplicated = deduplicateRecords(allRecords);
   const sorted = sortRecordsByDate(deduplicated);
-  
+
   return sorted;
 }
 
+// ─── File caching ────────────────────────────────────────────────────────────
+
+/**
+ * Build a cache key from a FileList (name + size + lastModified)
+ * @param {FileList} fileList
+ * @returns {string}
+ */
+export function buildFileCacheKey(fileList) {
+  return Array.from(fileList)
+    .map(file => `${file.name}:${file.size}:${file.lastModified}`)
+    .join('|');
+}
+
+/**
+ * Parse a FileList to records, logging progress.
+ * Handles JSON (Enedis) and CSV (via window.csvToEnedisJson) files.
+ * @param {FileList} fileList
+ * @returns {Promise<Array>} Sorted, deduplicated records
+ */
+export async function parseFilesToRecords(fileList) {
+  const analysisLog = getAnalysisLog();
+  const records = [];
+  const csvFiles = [];
+  const otherFiles = [];
+
+  for (const file of fileList) {
+    const name = (file.name || '').toLowerCase();
+    appendLog(analysisLog, `Lecture: ${file.name}`);
+    if (name.endsWith('.csv') || (file.type && file.type.toLowerCase().includes('csv'))) {
+      csvFiles.push(file);
+    } else if (name.endsWith('.json') || file.type.includes('json') || name.endsWith('.txt')) {
+      otherFiles.push(file);
+    } else {
+      appendLog(analysisLog, `${file.name} ignoré (formats supportés: JSON/CSV).`);
+    }
+  }
+
+  if (otherFiles.length > 0) {
+    try {
+      const parsed = await parseMultipleFiles(otherFiles);
+      records.push(...parsed);
+    } catch (err) {
+      appendLog(analysisLog, `Erreur lecture fichiers JSON: ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  for (const file of csvFiles) {
+    try {
+      const txt = await file.text();
+      if (typeof window.csvToEnedisJson !== 'function') throw new Error('convertisseur CSV indisponible');
+      const json = window.csvToEnedisJson(txt);
+      const donnees = json?.cons?.aggregats?.heure?.donnees;
+      if (Array.isArray(donnees)) {
+        for (const rec of donnees) {
+          const val = Number(rec.valeur);
+          if (Number.isNaN(val)) continue;
+          records.push({ dateDebut: rec.dateDebut, dateFin: rec.dateFin, valeur: val });
+        }
+        appendLog(analysisLog, `Converti depuis CSV: ${donnees.length} enregistrements`);
+      } else {
+        appendLog(analysisLog, `CSV non reconnu: aucune donnée horaire trouvée dans ${file.name}`);
+      }
+    } catch (err) {
+      appendLog(analysisLog, `Erreur conversion CSV (${file.name}): ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  const dedup = deduplicateRecords(records);
+  const sorted = sortRecordsByDate(dedup);
+  appendLog(analysisLog, `Total enregistrements valides: ${sorted.length}`);
+  return sorted;
+}
+
+/**
+ * Return records from cache if file list unchanged, otherwise re-parse.
+ * @param {FileList} fileList
+ * @returns {Promise<Array>}
+ */
+export async function getRecordsFromCache(fileList) {
+  if (!fileList || fileList.length === 0) return [];
+  const key = buildFileCacheKey(fileList);
+  if (appState.recordsCacheKey === key && appState.records.length) {
+    return appState.records;
+  }
+  const records = await parseFilesToRecords(fileList);
+  appState.setState({ records, recordsCacheKey: key }, 'FILES_LOADED');
+  return records;
+}

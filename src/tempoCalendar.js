@@ -570,3 +570,14 @@ export async function ensureTempoDayMap(records, tempoLoading, defaults, onState
 
   return finalMap;
 }
+
+// ─── Shared tempo loading state ───────────────────────────────────────────────
+// Singleton with lazy DOM getters so it can be imported at module load time
+// without requiring the DOM to be ready yet.
+export const tempoLoading = {
+  get container() { return document.getElementById('tempo-loading'); },
+  get fill() { return document.getElementById('tempo-loading-fill'); },
+  get text() { return document.getElementById('tempo-loading-text'); },
+  total: 0,
+  done: 0
+};

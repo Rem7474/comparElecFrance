@@ -129,22 +129,18 @@ export function loadSetting(id) {
   }
 }
 
-// Note: These functions use the global DEFAULTS object defined in app.js
-// They are designed to work with DOM elements and the global application state
-
 /**
- * Apply subscription input values to global DEFAULTS configuration
+ * Apply subscription input values to DEFAULTS configuration
  * Reads from DOM and updates DEFAULTS.subBase, DEFAULTS.hp.sub, DEFAULTS.tempo.sub
+ * @param {Object} DEFAULTS - Tariff defaults to update
  * @returns {boolean} Whether any values changed
  */
-export function applySubscriptionInputs() {
-  // Note: DEFAULTS must be available in the caller's scope
+export function applySubscriptionInputs(DEFAULTS) {
   const sb = document.getElementById('param-sub-base');
   const sh = document.getElementById('param-sub-hphc');
   const st = document.getElementById('param-sub-tempo');
-  
-  if (!window.DEFAULTS) return false;
-  const DEFAULTS = window.DEFAULTS;
+
+  if (!DEFAULTS) return false;
   let changed = false;
 
   if (sb && sb.value) {
@@ -175,16 +171,14 @@ export function applySubscriptionInputs() {
 }
 
 /**
- * Apply HC range input value to global DEFAULTS configuration
+ * Apply HC range input value to DEFAULTS configuration
  * Reads from DOM and updates DEFAULTS.hp.hcRange
+ * @param {Object} DEFAULTS - Tariff defaults to update
  * @returns {boolean} Whether the value changed
  */
-export function applyHcRangeInput() {
+export function applyHcRangeInput(DEFAULTS) {
   const el = document.getElementById('param-hphc-hcRange');
-  if (!el) return false;
-
-  if (!window.DEFAULTS) return false;
-  const DEFAULTS = window.DEFAULTS;
+  if (!el || !DEFAULTS) return false;
 
   const norm = normalizeHcRange(el.value);
   if (!norm) return false;
@@ -198,18 +192,18 @@ export function applyHcRangeInput() {
 }
 
 /**
- * Apply Total Charge Heures input values to global DEFAULTS configuration
+ * Apply Total Charge Heures input values to DEFAULTS configuration
  * Reads from DOM and updates DEFAULTS.totalChargeHeures
+ * @param {Object} DEFAULTS - Tariff defaults to update
  * @returns {boolean} Whether any values changed
  */
-export function applyTotalChargeHeuresInputs() {
+export function applyTotalChargeHeuresInputs(DEFAULTS) {
   const hpr = document.getElementById('param-tch-hpRange');
   const hcr = document.getElementById('param-tch-hcRange');
   const hsr = document.getElementById('param-tch-hscRange');
   const sub = document.getElementById('param-sub-tch');
-  
-  if (!window.DEFAULTS) return false;
-  const DEFAULTS = window.DEFAULTS;
+
+  if (!DEFAULTS) return false;
   let changed = false;
 
   if (hpr && hpr.value) {

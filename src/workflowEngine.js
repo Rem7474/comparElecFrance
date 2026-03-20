@@ -1,140 +1,96 @@
 /**
- * workflowEngine.js - Workflow orchestration and state management
- * Handles complex multi-step workflows and state transitions
+ * workflowEngine.js - Workflow orchestration
+ * Coordinates full recalculation and parameter input bindings.
+ * All dependencies are imported directly — no dependency injection needed.
  * @module workflowEngine
  */
 
 import { appState } from './state.js';
+import { DEFAULTS } from './config.js';
+import { invalidateCache } from './calculationEngine.js';
+import { ensureTempoDayMap, tempoLoading } from './tempoCalendar.js';
+import { getRecordsFromCache } from './fileHandler.js';
+import { compareOffers, renderMonthlyBreakdown, runPvSimulation } from './analysisWorkflow.js';
+import { appendLog, getAnalysisLog } from './logger.js';
+import { applySubscriptionInputs, applyHcRangeInput, applyTotalChargeHeuresInputs } from './utils.js';
+import { populateDefaultsDisplay } from './uiManager.js';
 
 /**
- * Trigger full application recalculation after configuration changes
- * Orchestrates analysis → compareOffers → breakdown → PV simulation
- * Uses invalidateCache to prevent redundant calculations
- * @param {HTMLInputElement} fileInput - File input element
- * @param {Function} getRecordsFromCache - Cache retrieval function
- * @param {Function} invalidateCache - Cache invalidation function
- * @param {Function} ensureTempoDayMap - Tempo initialization
- * @param {Function} compareOffers - Cost comparison workflow
- * @param {Function} renderMonthlyBreakdown - Monthly breakdown workflow
- * @param {Function} runPvSimulation - PV simulation workflow
- * @param {Object} DEFAULTS - Tariff configuration
- * @param {Object} tempoLoading - Tempo loading indicator element
- * @param {Function} appendAnalysisLog - Logging function
- * @returns {Promise<void>}
+ * Trigger full recalculation after configuration changes.
+ * Invalidates tariff cache, re-parses files if needed, loads TEMPO, runs all workflows.
  */
-export async function triggerFullRecalculation(
-  fileInput,
-  getRecordsFromCache,
-  invalidateCache,
-  ensureTempoDayMap,
-  compareOffers,
-  renderMonthlyBreakdown,
-  runPvSimulation,
-  DEFAULTS,
-  tempoLoading,
-  appendAnalysisLog
-) {
+export async function triggerFullRecalculation() {
+  const fileInput = document.getElementById('file-input');
   const files = fileInput && fileInput.files;
   if (!files || files.length === 0) return;
 
-  // Invalidate cache (tariff change, not file change)
   invalidateCache('tariff');
 
   const records = await getRecordsFromCache(files);
   if (!records || records.length === 0) return;
 
-  // Ensure Tempo map if needed
   await ensureTempoDayMap(records, tempoLoading, DEFAULTS, (updates) => {
     if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
     if (updates.tempoSourceMap) appState.setState({ tempoSourceMap: updates.tempoSourceMap }, 'TEMPO_SOURCES_UPDATED');
   });
 
-  // Run workflows in parallel where possible
+  const log = getAnalysisLog();
   try {
-    appendAnalysisLog('Recalcul des offres...');
+    appendLog(log, 'Recalcul des offres...');
     await compareOffers(records);
     await renderMonthlyBreakdown(records);
     await runPvSimulation(records);
-    appendAnalysisLog('Recalcul terminé.');
+    appendLog(log, 'Recalcul terminé.');
   } catch (err) {
     console.warn('Erreur lors du recalcul', err);
-    appendAnalysisLog(`Erreur: ${err.message}`);
+    appendLog(log, `Erreur: ${err && err.message ? err.message : err}`);
   }
 }
 
 /**
- * Setup bindings for subscription inputs (Base, HP/HC, Tempo)
- * Updates DEFAULTS and triggers recalculation
- * @param {Object} DEFAULTS - Tariff configuration
- * @param {Function} applySubscriptionInputs - Input processor
- * @param {Function} populateDefaultsDisplay - Display updater
- * @param {Function} triggerRecalc - Recalculation trigger
+ * Bind subscription inputs (Base, HP/HC, Tempo) — triggers recalculation on change.
  */
-export function setupSubscriptionInputBindings(
-  DEFAULTS,
-  applySubscriptionInputs,
-  populateDefaultsDisplay,
-  triggerRecalc
-) {
-  ['param-sub-base', 'param-sub-hphc', 'param-sub-tempo'].forEach((id) => {
+export function setupSubscriptionInputBindings() {
+  ['param-sub-base', 'param-sub-hphc', 'param-sub-tempo'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', async () => {
-      const changed = applySubscriptionInputs();
+      const changed = applySubscriptionInputs(DEFAULTS);
       if (!changed) return;
-      populateDefaultsDisplay();
-      await triggerRecalc();
+      populateDefaultsDisplay(DEFAULTS);
+      await triggerFullRecalculation();
     });
   });
 }
 
 /**
- * Setup bindings for Total Charge Heures (TCH) tariff inputs
- * @param {Object} DEFAULTS - Tariff configuration
- * @param {Function} applyTotalChargeInputs - Input processor
- * @param {Function} populateDefaultsDisplay - Display updater
- * @param {Function} triggerRecalc - Recalculation trigger
+ * Bind Total Charge Heures inputs — triggers recalculation on change.
  */
-export function setupTotalChargeInputBindings(
-  DEFAULTS,
-  applyTotalChargeInputs,
-  populateDefaultsDisplay,
-  triggerRecalc
-) {
-  ['param-tch-hpRange', 'param-tch-hcRange', 'param-tch-hscRange', 'param-sub-tch'].forEach((id) => {
+export function setupTotalChargeInputBindings() {
+  ['param-tch-hpRange', 'param-tch-hcRange', 'param-tch-hscRange', 'param-sub-tch'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', async () => {
-      const changed = applyTotalChargeInputs();
+      const changed = applyTotalChargeHeuresInputs(DEFAULTS);
       if (!changed) return;
-      populateDefaultsDisplay();
-      await triggerRecalc();
+      populateDefaultsDisplay(DEFAULTS);
+      await triggerFullRecalculation();
     });
   });
 }
 
 /**
- * Setup bindings for HP/HC range input
- * @param {Object} DEFAULTS - Tariff configuration
- * @param {Function} applyHcRangeInput - Range processor
- * @param {Function} populateDefaultsDisplay - Display updater
- * @param {Function} triggerRecalc - Recalculation trigger
+ * Bind HP/HC range input — triggers recalculation on change.
  */
-export function setupHcRangeInputBinding(
-  DEFAULTS,
-  applyHcRangeInput,
-  populateDefaultsDisplay,
-  triggerRecalc
-) {
+export function setupHcRangeInputBinding() {
   const el = document.getElementById('param-hphc-hcRange');
   if (!el) return;
-
   el.addEventListener('change', async () => {
     const before = DEFAULTS.hp && DEFAULTS.hp.hcRange;
-    applyHcRangeInput();
+    applyHcRangeInput(DEFAULTS);
     const after = DEFAULTS.hp && DEFAULTS.hp.hcRange;
     if (before === after) return;
-    populateDefaultsDisplay();
-    await triggerRecalc();
+    populateDefaultsDisplay(DEFAULTS);
+    await triggerFullRecalculation();
   });
 }

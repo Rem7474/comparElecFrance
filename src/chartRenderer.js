@@ -173,6 +173,107 @@ export function renderHpHcPie(records, hcRange, canvasElement) {
 }
 
 /**
+ * Render monthly costs bar chart
+ * @param {Array} labels - Month labels
+ * @param {Array} datasets - Chart.js datasets
+ * @param {HTMLElement} canvasElement
+ * @returns {Chart}
+ */
+export function renderMonthlyChart(labels, datasets, canvasElement) {
+  if (!canvasElement) return null;
+  destroyChart('monthly');
+  const ctx = canvasElement.getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: { responsive: true, scales: { y: { beginAtZero: true } }, interaction: { mode: 'index' } }
+  });
+  setChartInstance('monthly', chart);
+  return chart;
+}
+
+/**
+ * Render monthly PV savings bar chart
+ * @param {Array} labels
+ * @param {Array} datasets
+ * @param {HTMLElement} canvasElement
+ * @returns {Chart}
+ */
+export function renderMonthlySavingsChart(labels, datasets, canvasElement) {
+  if (!canvasElement) return null;
+  destroyChart('monthlySavings');
+  const ctx = canvasElement.getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true, title: { display: true, text: '€ / mois économisés' } } },
+      interaction: { mode: 'index' }
+    }
+  });
+  setChartInstance('monthlySavings', chart);
+  return chart;
+}
+
+/**
+ * Render PV production vs consumption chart
+ * @param {Array} labels - Month labels
+ * @param {Array} production - Monthly production values
+ * @param {Array} selfConsumed - Monthly self-consumed values
+ * @param {Array} injected - Monthly injected values
+ * @param {HTMLElement} canvasElement
+ * @returns {Chart}
+ */
+export function renderPVPowerChart(labels, production, selfConsumed, injected, canvasElement) {
+  if (!canvasElement) return null;
+  destroyChart('pvPower');
+  const ctx = canvasElement.getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Production PV (kWh)', data: production, backgroundColor: '#f1c40f' },
+        { label: 'Autoconsommation (kWh)', data: selfConsumed, backgroundColor: '#4e79a7' },
+        { label: 'Injection (kWh)', data: injected, backgroundColor: '#ff9f43' }
+      ]
+    },
+    options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } } }
+  });
+  setChartInstance('pvPower', chart);
+  return chart;
+}
+
+/**
+ * Render price-per-kWh evolution chart with optional PV overlay
+ * @param {Array} labels
+ * @param {Array} datasets
+ * @param {boolean} isPvEnabled
+ * @param {HTMLElement} canvasElement
+ * @returns {Chart}
+ */
+export function renderPricePVChart(labels, datasets, isPvEnabled, canvasElement) {
+  if (!canvasElement) return null;
+  destroyChart('pricePv');
+  const ctx = canvasElement.getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index' },
+      scales: {
+        yPrice: { type: 'linear', position: 'left', title: { display: true, text: '€/kWh' } },
+        yKwh: { type: 'linear', position: 'right', title: { display: true, text: 'kWh (PV mensuel)' }, grid: { drawOnChartArea: false }, display: isPvEnabled }
+      }
+    }
+  });
+  setChartInstance('pricePv', chart);
+  return chart;
+}
+
+/**
  * Render offers comparison bar chart
  * @param {Array} offers - Offers with cost data
  * @param {boolean} isPvEnabled - Include PV comparison
