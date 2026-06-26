@@ -2,12 +2,12 @@
   "id": "octotempo",
   "name": "Octotempo (Octopus Energy)",
   "type": "octotempo",
-  "description": "Tarif saisonnier Octopus : Été (Avr–Oct) et Hiver (Nov–Mars) avec HP/HC, + Jours Rouges (≈22j/an)",
+  "description": "Tarif saisonnier Octopus : Été (Avr–Oct) et Hiver (Nov–Mars) avec HP/HC, + Jours Rouges (~22j/an)",
   "summer": {
     "months": [4, 5, 6, 7, 8, 9, 10],
     "hp": 0.1575,
     "hc": 0.1325,
-    "hcRange": "00-07;11-17"
+    "hcRange": "21-07;11-17"
   },
   "winter": {
     "months": [11, 12, 1, 2, 3],
