@@ -21,7 +21,8 @@ import {
   computeCostHpHc,
   computeCostTotalCharge,
   computeCostTempo,
-  computeCostTempoOptimized
+  computeCostTempoOptimized,
+  computeCostOctotempo
 } from './tariffEngine.js';
 import { pvYieldPerKwp, simulatePVEffect, findBestPVConfig } from './pvSimulation.js';
 import {
@@ -30,7 +31,7 @@ import {
   renderTempoCalendarGraph
 } from './tempoCalendar.js';
 
-// ─── Shared state update callback ────────────────────────────────────────────
+// ─── Shared state update callback ────────────────────────────────────────────────────
 
 function onTempoUpdate(updates) {
   if (updates.tempoDayMap) appState.setState({ tempoDayMap: updates.tempoDayMap }, 'TEMPO_MAP_LOADED');
@@ -47,7 +48,7 @@ export async function runEnsureTempoMap(records) {
   return ensureTempoDayMap(records, tempoLoading, DEFAULTS, onTempoUpdate);
 }
 
-// ─── Private helpers ──────────────────────────────────────────────────────────
+// ─── Private helpers ───────────────────────────────────────────────────────────────
 
 /**
  * Compute monthly cost for a dynamic two-tier tariff.
@@ -59,6 +60,22 @@ export async function runEnsureTempoMap(records) {
 function computeTwoTierMonthlyCost(monthRecords, tariffMeta) {
   if (!tariffMeta || !tariffMeta.php || !tariffMeta.phc) return 0;
   const result = computeCostHpHc(monthRecords, tariffMeta, tariffMeta.hcRange || '22-06');
+  const selectedKva = String(Number(appState.currentKva) || 6);
+  const subs = tariffMeta.subscriptions || {};
+  const sub = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
+  return result.cost + sub;
+}
+
+/**
+ * Compute monthly cost for octotempo tariff.
+ * @param {Array} monthRecords
+ * @param {Object} tariffMeta - octotempo tariff config
+ * @param {Object} dayMap - Tempo day color map
+ * @returns {number} Monthly cost including subscription
+ */
+function computeOctotempoMonthlyCost(monthRecords, tariffMeta, dayMap) {
+  if (!tariffMeta) return 0;
+  const result = computeCostOctotempo(monthRecords, dayMap || null, tariffMeta);
   const selectedKva = String(Number(appState.currentKva) || 6);
   const subs = tariffMeta.subscriptions || {};
   const sub = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
@@ -113,12 +130,17 @@ function calculateOfferCost(tariffMeta, recs, recsWithPV, perHourAnnual, perHour
     const tempoConfig = tariffMeta.tempoConfig || DEFAULTS.tempo || {};
     costNoPV = (computeCostTempoOptimized(recs, tempoDayMap, tempoConfig) || {}).cost || 0;
     costWithPV = recsWithPV ? ((computeCostTempoOptimized(recsWithPV, tempoDayMap, tempoConfig) || {}).cost || 0) : costNoPV;
+  } else if (tariffMeta.type === 'octotempo') {
+    // Octotempo: seasonal HP/HC (summer/winter) + red days from tempoDayMap
+    // The tempoDayMap is reused for red day detection (color 'R' = red day)
+    costNoPV = (computeCostOctotempo(recs, tempoDayMap, tariffMeta) || {}).cost || 0;
+    costWithPV = recsWithPV ? ((computeCostOctotempo(recsWithPV, tempoDayMap, tariffMeta) || {}).cost || 0) : costNoPV;
   }
 
   return { costNoPV, costWithPV };
 }
 
-// ─── Public workflow functions ────────────────────────────────────────────────
+// ─── Public workflow functions ────────────────────────────────────────────────────────────
 
 /**
  * Run initial file analysis: compute stats, render charts, detect kVA, load TEMPO.
@@ -229,6 +251,7 @@ export async function renderMonthlyBreakdown(records) {
   const isPvEnabled = document.getElementById('toggle-pv')?.checked ?? true;
   const loadedTariffs = appState.getState().loadedTariffs || [];
   const dynamicTwoTiers = loadedTariffs.filter(t => t.type === 'two-tier' && t.id !== 'hphc');
+  const octotempoTariffs = loadedTariffs.filter(t => t.type === 'octotempo');
 
   let headerHTML = '<th>Mois</th><th>Consommation (kWh)</th>';
   headerHTML += '<th>Base (€)</th>';
@@ -238,6 +261,7 @@ export async function renderMonthlyBreakdown(records) {
   headerHTML += '<th>Tempo (€)</th>';
   if (isPvEnabled) headerHTML += '<th>Tempo PV (€)</th><th>Éco. Tempo (€)</th>';
   for (const tariff of dynamicTwoTiers) headerHTML += `<th>${tariff.name} (€)</th>`;
+  for (const tariff of octotempoTariffs) headerHTML += `<th>${tariff.name} (€)</th>`;
   headerHTML += '<th>Tempo Opt. (€)</th>';
   if (isPvEnabled) headerHTML += '<th>Tempo Opt. PV (€)</th><th>Éco. Tempo Opt. (€)</th>';
   headerHTML += '<th>TCH (€)</th>';
@@ -258,6 +282,10 @@ export async function renderMonthlyBreakdown(records) {
     const hphcSavingsRatio = row.hphc.total > 0 ? savings.hphc / row.hphc.total : 0;
     for (const tariff of dynamicTwoTiers) {
       const costNoPV = computeTwoTierMonthlyCost(monthlyRecords[row.month] || [], tariff);
+      savings[tariff.id] = Math.max(0, costNoPV * hphcSavingsRatio);
+    }
+    for (const tariff of octotempoTariffs) {
+      const costNoPV = computeOctotempoMonthlyCost(monthlyRecords[row.month] || [], tariff, tempoMap);
       savings[tariff.id] = Math.max(0, costNoPV * hphcSavingsRatio);
     }
     return savings;
@@ -308,6 +336,9 @@ export async function renderMonthlyBreakdown(records) {
       for (const tariff of dynamicTwoTiers) {
         rowHTML += `<td>${formatNumber(computeTwoTierMonthlyCost(monthlyRecords[row.month] || [], tariff))}</td>`;
       }
+      for (const tariff of octotempoTariffs) {
+        rowHTML += `<td>${formatNumber(computeOctotempoMonthlyCost(monthlyRecords[row.month] || [], tariff, tempoMap))}</td>`;
+      }
       rowHTML +=
         `<td>${formatNumber(row.tempoOpt.total)}</td>` +
         `<td>${formatNumber(row.tempoOptPV.total)}</td>` +
@@ -323,6 +354,9 @@ export async function renderMonthlyBreakdown(records) {
         `<td>${formatNumber(row.tempo.total)}</td>`;
       for (const tariff of dynamicTwoTiers) {
         rowHTML += `<td>${formatNumber(computeTwoTierMonthlyCost(monthlyRecords[row.month] || [], tariff))}</td>`;
+      }
+      for (const tariff of octotempoTariffs) {
+        rowHTML += `<td>${formatNumber(computeOctotempoMonthlyCost(monthlyRecords[row.month] || [], tariff, tempoMap))}</td>`;
       }
       rowHTML +=
         `<td>${formatNumber(row.tempoOpt.total)}</td>` +
@@ -342,6 +376,7 @@ export async function renderMonthlyBreakdown(records) {
       acc.tempoOpt = (acc.tempoOpt || 0) + (row.tempoOpt || 0);
       acc.tch = (acc.tch || 0) + (row.tch || 0);
       for (const tariff of dynamicTwoTiers) acc[tariff.id] = (acc[tariff.id] || 0) + (row[tariff.id] || 0);
+      for (const tariff of octotempoTariffs) acc[tariff.id] = (acc[tariff.id] || 0) + (row[tariff.id] || 0);
       return acc;
     }, {});
 
@@ -357,6 +392,9 @@ export async function renderMonthlyBreakdown(records) {
     for (const tariff of dynamicTwoTiers) {
       totalsHTML += ` &nbsp;|&nbsp; ${tariff.name}: ${formatNumber(totalSavings[tariff.id] || 0)} €`;
     }
+    for (const tariff of octotempoTariffs) {
+      totalsHTML += ` &nbsp;|&nbsp; ${tariff.name}: ${formatNumber(totalSavings[tariff.id] || 0)} €`;
+    }
     totalsBox.innerHTML = totalsHTML;
     container.appendChild(totalsBox);
   }
@@ -366,6 +404,9 @@ export async function renderMonthlyBreakdown(records) {
   const dynamicTariffCosts = {};
   for (const tariff of dynamicTwoTiers) {
     dynamicTariffCosts[tariff.id] = data.map(row => computeTwoTierMonthlyCost(monthlyRecords[row.month] || [], tariff));
+  }
+  for (const tariff of octotempoTariffs) {
+    dynamicTariffCosts[tariff.id] = data.map(row => computeOctotempoMonthlyCost(monthlyRecords[row.month] || [], tariff, tempoMap));
   }
 
   let datasets = isPvEnabled ? [
@@ -386,8 +427,8 @@ export async function renderMonthlyBreakdown(records) {
     { label: 'Tempo Opt.', data: data.map(r => r.tempoOpt.total), backgroundColor: '#17a2b8' },
     { label: 'TCH', data: data.map(r => r.tch.total), backgroundColor: '#d62728' }
   ];
-  for (const tariff of dynamicTwoTiers) {
-    datasets.push({ label: tariff.name, data: dynamicTariffCosts[tariff.id], backgroundColor: tariff.color });
+  for (const tariff of [...dynamicTwoTiers, ...octotempoTariffs]) {
+    datasets.push({ label: tariff.name, data: dynamicTariffCosts[tariff.id], backgroundColor: tariff.color || '#e91e8c' });
   }
 
   chartRenderer.renderMonthlyChart(labels, datasets, document.getElementById('monthly-chart'));
@@ -399,7 +440,7 @@ export async function renderMonthlyBreakdown(records) {
       if (isPvEnabled) {
         sc.style.display = 'block';
         if (sc.parentElement) sc.parentElement.style.display = '';
-        chartRenderer.renderMonthlySavingsChart(labels, [
+        const savingsDatasets = [
           { label: 'Éco. Base (€)', data: monthlySavings.map(m => m.base), backgroundColor: '#2e7d3233', borderColor: '#2e7d32', borderWidth: 1 },
           { label: 'Éco. HP/HC (€)', data: monthlySavings.map(m => m.hphc), backgroundColor: '#00838f33', borderColor: '#00838f', borderWidth: 1 },
           { label: 'Éco. Tempo (€)', data: monthlySavings.map(m => m.tempo), backgroundColor: '#8e24aa33', borderColor: '#8e24aa', borderWidth: 1 },
@@ -409,8 +450,14 @@ export async function renderMonthlyBreakdown(records) {
             label: `Éco. ${t.name} (€)`,
             data: monthlySavings.map(m => m[t.id] || 0),
             backgroundColor: (t.color + '33'), borderColor: t.color, borderWidth: 1
+          })),
+          ...octotempoTariffs.map(t => ({
+            label: `Éco. ${t.name} (€)`,
+            data: monthlySavings.map(m => m[t.id] || 0),
+            backgroundColor: ((t.color || '#e91e8c') + '33'), borderColor: t.color || '#e91e8c', borderWidth: 1
           }))
-        ], sc);
+        ];
+        chartRenderer.renderMonthlySavingsChart(labels, savingsDatasets, sc);
       } else {
         sc.style.display = 'none';
         if (sc.parentElement) sc.parentElement.style.display = 'none';
@@ -549,11 +596,13 @@ export async function compareOffers(records) {
 
   for (const tariffMeta of loadedTariffs) {
     if (tariffMeta.injectionPrice != null) continue;
-    const { costNoPV, costWithPV } = calculateOfferCost(tariffMeta, recs, recordsWithPV, perHourAnnual, perHourWithPV, priceBase, appState.tempoDayMap || {});
+    const { costNoPV, costWithPV } = calculateOfferCost(
+      tariffMeta, recs, recordsWithPV, perHourAnnual, perHourWithPV, priceBase, appState.tempoDayMap || {}
+    );
     const subs = tariffMeta.subscriptions || {};
     const subMonthly = Number(subs[selectedKva] != null ? subs[selectedKva] : Object.values(subs)[0]) || 0;
     const subPrice = subMonthly * monthsCount;
-    if (costNoPV > 0 || costWithPV > 0 || tariffMeta.type === 'tempo' || tariffMeta.type === 'tempo-optimized') {
+    if (costNoPV > 0 || costWithPV > 0 || tariffMeta.type === 'tempo' || tariffMeta.type === 'tempo-optimized' || tariffMeta.type === 'octotempo') {
       offers.push({ id: tariffMeta.id, name: tariffMeta.name, costNoPV: (Number(costNoPV) || 0) + subPrice, costWithPV: (Number(costWithPV) || 0) + subPrice, color: tariffMeta.color });
     }
   }
@@ -583,11 +632,6 @@ export async function compareOffers(records) {
     autoconsumptionRate: annualProduction > 0 ? pvSim.selfConsumed / annualProduction : 0,
     pvSavings: exportIncome
   }, 'compareOffers');
-
-  const getOfferColor = (id, color) => {
-    if (color) return color;
-    return { base: '#4e79a7', hphc: '#f28e2b', octopus: '#f28e2b', tempo: '#59a14f', tempoOpt: '#117a8b', tch: '#d62728' }[id] || '#a0cbe8';
-  };
 
   const createCard = (title, costNoPV, costPV, isBest, warningMsg, extraInfo, isPositiveMsg) => {
     const div = document.createElement('div');
@@ -640,6 +684,7 @@ export async function compareOffers(records) {
       if (ofr.id === 'tempo') { warning = "Sans changement d'habitude de consommation."; warningPositive = false; }
       if (ofr.id === 'tempoOpt') { warning = 'Avec report 50% HP Rouge vers HP Blanc.'; warningPositive = false; }
       if (ofr.id === 'tch') { warning = "Tarif à 3 tranches horaires (HP/HC/HSC)."; warningPositive = false; }
+      if (ofr.id === 'octotempo') { warning = 'Jours rouges ≈22j/an en hiver (à éviter ou reporter).'; warningPositive = false; }
       if (isBest && bestId) {
         try {
           const hRef = offers.find(x => x.id === 'hphc');
@@ -759,6 +804,22 @@ export async function compareOffers(records) {
           }
           return (hp * (tariff.php || 0) + hc * (tariff.phc || 0)) / m.consumption;
         }), borderColor: color, backgroundColor: color + '33', fill: false, tension: 0.1 });
+    }
+
+    // Octotempo: monthly effective price
+    for (const tariff of loadedTariffs.filter(t => t.type === 'octotempo')) {
+      const color = tariff.color || '#e91e8c';
+      datasets.push({
+        type: 'line', yAxisID: 'yPrice',
+        label: `Prix ${tariff.name} (€/kWh)`,
+        data: monthly.map(m => {
+          if (m.consumption <= 0) return null;
+          const mRecs = monthlyRecords[m.month] || [];
+          const result = computeCostOctotempo(mRecs, appState.tempoDayMap || {}, tariff);
+          return result.cost / m.consumption;
+        }),
+        borderColor: color, backgroundColor: color + '33', fill: false, tension: 0.1
+      });
     }
 
     if (isPvEnabled) datasets.push({ type: 'bar', yAxisID: 'yKwh', label: 'Production PV (kWh)', data: pvProdSeries, backgroundColor: '#f1c40f55' });
