@@ -187,37 +187,43 @@ export function computeCostTempoOptimized(records, dayMap, tempoTariff) {
 /**
  * Compute cost for the Octotempo tariff (Octopus Energy).
  *
- * Rules:
- *  - Summer (Avr–Oct, months 4–10) : HC 21h–07h, HP rest
- *    - HP = summer.hp, HC = summer.hc
- *  - Winter (Nov–Mars, months 11–3) : HC 21h–07h, HP rest
- *    - Normal winter day : HP = winter.hp, HC = winter.hc
- *    - Red day (from tempoDayMap color 'R') : HP = red.hp, HC = red.hc
+ * Seasonal HC windows (from official schedule):
+ *  - Summer (Avr–Oct, months 4–10):
+ *      HC = 00h–07h  AND  11h–17h  (tariff.summer.hcRange = '00-07;11-17')
+ *      HP = rest (07h–11h and 17h–21h and 21h–00h)
+ *  - Winter (Nov–Mars, months 11–3):
+ *      HC = 21h–07h  (tariff.winter.hcRange = '21-07', cross-midnight)
+ *      HP = 07h–21h
+ *      Red day (color 'R' from tempoDayMap): same HC window but HP = red.hp
  *
  * When tempoDayMap is not available, red days are approximated using
  * tariff.red.approxDaysPerYear over a 365-day calendar.
  *
- * @param {Array} records - Consumption records
- * @param {Object} dayMap - Tempo day color map {YYYY-MM-DD: 'R'|'W'|'B'} or null
- * @param {Object} tariff - Octotempo tariff config (summer/winter/red blocks)
+ * @param {Array}  records - Consumption records [{dateDebut, valeur}]
+ * @param {Object} dayMap  - Tempo day color map {YYYY-MM-DD: 'R'|'W'|'B'} or null
+ * @param {Object} tariff  - Octotempo tariff config (summer/winter/red blocks)
  * @returns {{ cost: number, summer: number, winter: number, red: number }}
  */
 export function computeCostOctotempo(records, dayMap, tariff) {
   const summerMonths = new Set((tariff.summer && tariff.summer.months) || [4, 5, 6, 7, 8, 9, 10]);
-  const hcRange = (tariff.summer && tariff.summer.hcRange) || '21-07';
+
+  // Per-season HC range strings — each season has its own schedule
+  const summerHcRange = (tariff.summer && tariff.summer.hcRange) || '00-07;11-17';
+  const winterHcRange = (tariff.winter && tariff.winter.hcRange) || '21-07';
+  const redHcRange    = (tariff.red    && tariff.red.hcRange)    || winterHcRange;
 
   const summerHp = Number(tariff.summer && tariff.summer.hp) || 0.1575;
   const summerHc = Number(tariff.summer && tariff.summer.hc) || 0.1325;
   const winterHp = Number(tariff.winter && tariff.winter.hp) || 0.1871;
   const winterHc = Number(tariff.winter && tariff.winter.hc) || 0.1575;
-  const redHp   = Number(tariff.red && tariff.red.hp)    || 0.6469;
-  const redHc   = Number(tariff.red && tariff.red.hc)    || 0.1575;
+  const redHp    = Number(tariff.red    && tariff.red.hp)    || 0.6469;
+  const redHc    = Number(tariff.red    && tariff.red.hc)    || 0.1575;
 
   let costSummer = 0;
   let costWinter = 0;
   let costRed    = 0;
 
-  // Approximate mode when no dayMap is available
+  // ── Approximate mode (no dayMap) ────────────────────────────────────────────
   if (!dayMap || Object.keys(dayMap).length === 0) {
     const approxRedDays = Number(tariff.red && tariff.red.approxDaysPerYear) || 22;
     const redFraction   = approxRedDays / 365;
@@ -228,22 +234,24 @@ export function computeCostOctotempo(records, dayMap, tariff) {
       const dt    = new Date(rec.dateDebut);
       const hour  = dt.getHours();
       const month = dt.getMonth() + 1;
-      const isHc  = isHourHC(hour, hcRange);
 
       if (summerMonths.has(month)) {
+        const isHc = isHourHC(hour, summerHcRange);
         costSummer += value * (isHc ? summerHc : summerHp);
       } else {
-        // Split winter consumption: redFraction = red days, rest = normal winter
+        // Winter: split between red-day fraction and normal days
+        const isHcWinter = isHourHC(hour, winterHcRange);
+        const isHcRed    = isHourHC(hour, redHcRange);
         const redPart    = value * redFraction;
         const winterPart = value * (1 - redFraction);
-        costRed    += redPart    * (isHc ? redHc    : redHp);
-        costWinter += winterPart * (isHc ? winterHc : winterHp);
+        costRed    += redPart    * (isHcRed    ? redHc    : redHp);
+        costWinter += winterPart * (isHcWinter ? winterHc : winterHp);
       }
     }
     return { cost: costSummer + costWinter + costRed, summer: costSummer, winter: costWinter, red: costRed };
   }
 
-  // Exact mode using tempoDayMap
+  // ── Exact mode (tempoDayMap available) ──────────────────────────────────────
   for (const rec of records) {
     const value = Number(rec.valeur) || 0;
     if (value === 0) continue;
@@ -251,15 +259,17 @@ export function computeCostOctotempo(records, dayMap, tariff) {
     const dt    = new Date(rec.dateDebut);
     const hour  = dt.getHours();
     const month = dt.getMonth() + 1;
-    const isHc  = isHourHC(hour, hcRange);
 
+    // ── Summer ───────────────────────────────────────────────────────────────
     if (summerMonths.has(month)) {
+      const isHc = isHourHC(hour, summerHcRange);
       costSummer += value * (isHc ? summerHc : summerHp);
       continue;
     }
 
-    // Winter: check if red day
-    // HC from 21h–00h belongs to current day; HC from 00h–07h belongs to previous day
+    // ── Winter: resolve the day color ───────────────────────────────────────
+    // HC from 21h–00h belongs to the *current* day's color;
+    // HC from 00h–07h belongs to the *previous* day's color.
     let bucketDateStr;
     if (hour < 7) {
       const prev = new Date(dt);
@@ -269,14 +279,18 @@ export function computeCostOctotempo(records, dayMap, tariff) {
       bucketDateStr = toLocalDateKey(dt);
     }
 
-    const dayEntry = dayMap[bucketDateStr];
-    const colorLetter = dayEntry
-      ? (typeof dayEntry === 'string' ? dayEntry.toUpperCase() : ((dayEntry.color) ? String(dayEntry.color).toUpperCase() : 'W'))
+    const dayEntry     = dayMap[bucketDateStr];
+    const colorLetter  = dayEntry
+      ? (typeof dayEntry === 'string'
+          ? dayEntry.toUpperCase()
+          : (dayEntry.color ? String(dayEntry.color).toUpperCase() : 'W'))
       : 'W';
 
     if (colorLetter === 'R') {
+      const isHc = isHourHC(hour, redHcRange);
       costRed    += value * (isHc ? redHc    : redHp);
     } else {
+      const isHc = isHourHC(hour, winterHcRange);
       costWinter += value * (isHc ? winterHc : winterHp);
     }
   }
