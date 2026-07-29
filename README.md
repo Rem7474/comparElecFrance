@@ -18,6 +18,8 @@ Tout se passe dans votre navigateur.
 
 <br>
 
+<img src="docs/screenshots/offers.png" alt="Comparatif des offres d'électricité ComparatifElec" width="100%">
+
 ## Pourquoi cet outil ?
 
 Le simulateur de votre fournisseur ne compare jamais qu'une seule offre à
@@ -54,6 +56,8 @@ période — y compris les tarifs que vous définissez vous-même.
   mensuel par offre, économies apportées par le solaire
 - Un **calendrier Tempo** avec le détail jour par jour
 - Un **historique local** de vos dernières analyses (jusqu'à 20)
+
+<img src="docs/screenshots/consumption.png" alt="Profil de consommation horaire et répartition HP/HC" width="100%">
 
 ## Vos données restent chez vous
 
