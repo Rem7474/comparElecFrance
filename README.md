@@ -1,11 +1,28 @@
 # ⚡ ComparatifElec
 
+![Deploy](https://github.com/Rem7474/comparElecFrance/actions/workflows/deploy.yml/badge.svg)
+![CI](https://github.com/Rem7474/comparElecFrance/actions/workflows/ci.yml/badge.svg)
+
 **Analyse complète de consommation électrique & Simulation PV tout-en-un**
 
 Application web 100% front-end pour analyser vos données Enedis, comparer les tarifs (Base, HP/HC, Tempo, TCH, + custom), simuler le photovoltaïque et exporter les résultats en PDF/Excel.
 
-🌍 **En ligne:** [https://elec.remcorp.fr](https://elec.remcorp.fr)  
+🌍 **En ligne:** [https://elec.remcorp.fr](https://elec.remcorp.fr) · [https://rem7474.github.io/comparElecFrance/](https://rem7474.github.io/comparElecFrance/)  
 📅 **Mise à jour:** 5 mars 2026 - Phase 3.1 ✅ (Export PDF/Excel)
+
+---
+
+## 📋 Prérequis & Lancement local
+
+Aucune dépendance, aucun build : uniquement du HTML/CSS/JS natif (modules ES6) et quelques librairies chargées via CDN (Chart.js, jsPDF, XLSX).
+
+```bash
+git clone https://github.com/Rem7474/comparElecFrance.git
+cd comparElecFrance
+npx serve .        # ou: python3 -m http.server 8080
+```
+
+⚠️ Ouvrir `index.html` directement via `file://` ne fonctionne pas : les modules ES6 et le chargement dynamique des tarifs (`fetch('tariffs/index.json')`) nécessitent un serveur HTTP local minimal.
 
 ---
 
@@ -86,7 +103,7 @@ Application web 100% front-end pour analyser vos données Enedis, comparer les t
 ```
 ComparatifElec/
 ├── 📄 index.html                    # Structure HTML
-├── 🎨 style.css / style-*.css      # Styles (flexbox, responsive)
+├── 🖼️ favicon.ico
 ├── 🎯 src/
 │   ├── app.js                       # Point d'entrée principal (1728 lignes)
 │   ├── state.js                     # Gestion état (AppStateManager)
@@ -103,7 +120,12 @@ ComparatifElec/
 │   ├── tempoCalendar.js             # Calendrier Tempo + API
 │   ├── workflowEngine.js            # Orchestration recalculs
 │   ├── utils.js                     # Utilities & localStorage
-│   └── exportManager.js             # ✨ NEW: Export PDF/Excel/Historique
+│   ├── exportManager.js             # Export PDF/Excel/Historique
+│   ├── csvToEnedisJson.js           # Utilitaire conversion CSV → JSON Enedis
+│   └── styles/
+│       ├── style.css                # Styles globaux
+│       ├── style-improvements.css   # Ajustements UI
+│       └── style-tariffs.css        # Styles cartes tarifaires
 ├── 💾 tariffs/
 │   ├── index.json                   # Source-of-truth tarifaires
 │   ├── base.json                    # Tarif simple
@@ -112,6 +134,11 @@ ComparatifElec/
 │   ├── octopusEnergy.json           # OctopusEnergy (custom)
 │   ├── injection.json               # Prix injection réseau
 │   └── ... (custom tariffs)
+├── .github/
+│   ├── workflows/
+│   │   ├── deploy.yml               # Déploiement GitHub Pages
+│   │   └── ci.yml                   # Validation HTML/JS sur PR
+│   └── copilot-instructions.md
 └── README.md                         # Ce fichier
 ```
 
@@ -263,10 +290,22 @@ PDF/Excel/History
 
 ---
 
+## 🤝 Contribution
+
+Les contributions sont bienvenues !
+1. Forkez le repo et créez une branche depuis `main`
+2. Ouvrez `index.html` via un serveur local (voir [Prérequis & Lancement local](#-prérequis--lancement-local))
+3. Le workflow CI (`.github/workflows/ci.yml`) valide le HTML et la syntaxe JS sur chaque PR
+4. Ouvrez une Pull Request avec une description claire du changement
+
+## 📄 Licence
+
+Aucune licence n'est actuellement définie pour ce projet. En l'absence de licence, les droits par défaut du droit d'auteur s'appliquent (tous droits réservés). Si une réutilisation ouverte est souhaitée, l'ajout d'un fichier `LICENSE` (MIT, par exemple) est recommandé.
+
 ## 🤝 Support
 
 Questions ou bugs ?
-- Consultez `AUDIT_REPORT.md` pour architecture détaillée
+- Consultez la section [🏗️ Architecture Technique](#-architecture-technique) ci-dessus
 - Modifiez `tariffs/*.json` pour custom tarifaires
 - Vérifiez console (F12) pour logs détaillés
 
