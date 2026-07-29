@@ -138,8 +138,6 @@ ComparatifElec/
 │   ├── workflows/
 │   │   ├── deploy.yml               # Déploiement GitHub Pages
 │   │   └── ci.yml                   # Validation HTML/JS sur PR
-│   ├── docs/
-│   │   └── AUDIT_REPORT.md          # Historique d'audit technique
 │   └── copilot-instructions.md
 └── README.md                         # Ce fichier
 ```
@@ -307,7 +305,7 @@ Aucune licence n'est actuellement définie pour ce projet. En l'absence de licen
 ## 🤝 Support
 
 Questions ou bugs ?
-- Consultez [`.github/docs/AUDIT_REPORT.md`](.github/docs/AUDIT_REPORT.md) pour l'architecture détaillée
+- Consultez la section [🏗️ Architecture Technique](#-architecture-technique) ci-dessus
 - Modifiez `tariffs/*.json` pour custom tarifaires
 - Vérifiez console (F12) pour logs détaillés
 
