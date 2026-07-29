@@ -1,312 +1,78 @@
+<div align="center">
+
 # ⚡ ComparatifElec
 
-![Deploy](https://github.com/Rem7474/comparElecFrance/actions/workflows/deploy.yml/badge.svg)
-![CI](https://github.com/Rem7474/comparElecFrance/actions/workflows/ci.yml/badge.svg)
+**Quelle offre d'électricité est vraiment la moins chère pour vous ?**
 
-**Analyse complète de consommation électrique & Simulation PV tout-en-un**
+Importez votre historique de consommation Enedis, comparez en un clic
+Base, HP/HC, Tempo et vos propres tarifs personnalisés, simulez une
+installation photovoltaïque, et exportez le résultat en PDF ou Excel.
+Tout se passe dans votre navigateur.
 
-Application web 100% front-end pour analyser vos données Enedis, comparer les tarifs (Base, HP/HC, Tempo, TCH, + custom), simuler le photovoltaïque et exporter les résultats en PDF/Excel.
+### 👉 [**elec.remcorp.fr**](https://elec.remcorp.fr) 👈
 
-🌍 **En ligne:** [https://elec.remcorp.fr](https://elec.remcorp.fr) · [https://rem7474.github.io/comparElecFrance/](https://rem7474.github.io/comparElecFrance/)  
-📅 **Mise à jour:** 5 mars 2026 - Phase 3.1 ✅ (Export PDF/Excel)
+[![Deploy](https://github.com/Rem7474/comparElecFrance/actions/workflows/deploy.yml/badge.svg)](https://github.com/Rem7474/comparElecFrance/actions/workflows/deploy.yml)
+[![CI](https://github.com/Rem7474/comparElecFrance/actions/workflows/ci.yml/badge.svg)](https://github.com/Rem7474/comparElecFrance/actions/workflows/ci.yml)
 
----
+</div>
 
-## 📋 Prérequis & Lancement local
+<br>
 
-Aucune dépendance, aucun build : uniquement du HTML/CSS/JS natif (modules ES6) et quelques librairies chargées via CDN (Chart.js, jsPDF, XLSX).
+## Pourquoi cet outil ?
 
-```bash
-git clone https://github.com/Rem7474/comparElecFrance.git
-cd comparElecFrance
-npx serve .        # ou: python3 -m http.server 8080
-```
+Le simulateur de votre fournisseur ne compare jamais qu'une seule offre à
+la fois, et rarement avec votre consommation heure par heure. Entre Base,
+HP/HC, Tempo (jours Bleu/Blanc/Rouge) et les offres alternatives, le
+classement dépend en réalité de votre profil réel de consommation — pas
+d'une moyenne nationale.
 
-⚠️ Ouvrir `index.html` directement via `file://` ne fonctionne pas : les modules ES6 et le chargement dynamique des tarifs (`fetch('tariffs/index.json')`) nécessitent un serveur HTTP local minimal.
+ComparatifElec importe votre export Enedis (JSON/CSV/Excel) et recalcule,
+heure par heure, ce que chaque offre vous aurait vraiment coûté sur la
+période — y compris les tarifs que vous définissez vous-même.
 
----
+## Ce que vous pouvez faire
 
-## 🚀 Fonctionnalités
+- 📂 **Importer vos données Enedis** (JSON, CSV ou Excel) et visualiser
+  votre profil de consommation horaire, votre répartition HP/HC et votre
+  talon de consommation (veille)
+- 💰 **Comparer les offres en un clic** : Base, HP/HC, Tempo, Tempo
+  optimisé, TCH — et **ajouter vos propres tarifs personnalisés** (fichier
+  JSON, sans toucher au code)
+- ☀️ **Simuler une installation photovoltaïque** : puissance, région,
+  autoconsommation vs injection réseau, et calcul du retour sur
+  investissement
+- 📤 **Exporter en PDF ou Excel** (résumé, offres, détail mensuel, données
+  brutes) pour partager ou garder une trace
+- 🔗 **Partager un lien** : le scénario est encodé dans l'URL, la personne
+  qui l'ouvre voit exactement la même analyse
 
-### 📊 Analyse de Consommation
-- ✅ Import JSON/CSV/Excel (fichiers Enedis)
-- ✅ Statistiques horaires (profil moyens, min/max)
-- ✅ Répartition HP/HC en graphique
-- ✅ Détection talon de consommation (standby power)
+## Ce que vous obtenez
 
-### 💰 Comparaison Tarifaire (100% Dynamique)
-- ✅ **Base** - Tarif fixe simple
-- ✅ **HP/HC** - Heures pleines/creuses (TarifBleu, OctopusEnergy, Alpiq, custom)
-- ✅ **TCH** - Total Charge Heures (3 périodes distinctes)
-- ✅ **Tempo** - Tarif français dynamique (Jours Rouge/Blanc/Bleu)
-- ✅ **Tempo Optimisé** - Variante optimisée
-- ✅ **Custom Tarifaires** - Ajoutez illimité de tarifs (JSON seulement)
+- Le **classement des offres** sur votre consommation réelle, avec le prix
+  moyen au kWh de chacune
+- Des **graphiques** : profil horaire moyen, répartition HP/HC, coût
+  mensuel par offre, économies apportées par le solaire
+- Un **calendrier Tempo** avec le détail jour par jour
+- Un **historique local** de vos dernières analyses (jusqu'à 20)
 
-**Architecture dynamique:** Ajouter un tarif = `index.json` + fichier JSON (zéro modification code)
+## Vos données restent chez vous
 
-### ☀️ Simulation Photovoltaïque
-- ✅ Puissance variable (0.5 - 10 kWc)
-- ✅ Régions France (Nord 700, Centre 900, Sud 1100 kWh/kWc)
-- ✅ Autoconsommation + injection réseau
-- ✅ Estimation annuelle + mensuelle
-- ✅ Calcul ROI (années pour rentabilité)
-- ✅ Coûts installation modifiables
+Application 100 % front-end — aucun calcul, aucune donnée n'est envoyée à
+un serveur.
 
-### 📤 Export & Partage
-- ✅ **Export PDF** - Rapport complet avec résumé + tableaux
-- ✅ **Export Excel** - 4 feuilles (Résumé, Offres, Mensuel, Données brutes)
-- ✅ **Historique** - Sauvegarde localStorage (max 20 analyses)
-- ✅ **Lien Partageable** - URL encodée (base64) pour partage
+- Vos analyses sont **sauvegardées dans votre navigateur** (localStorage)
+- **Exportez/partagez** un scénario via un lien encodé, sans jamais
+  transiter par un serveur tiers
 
-### 📈 Visualisations
-- Profil horaire moyens (Bar chart)
-- Répartition HP/HC (Pie chart)
-- Coût mensuel par offre (Bar chart dynamique)
-- Prix moyen €/kWh (Line chart avec PV)
-- Économies mensuelles grâce PV (Stacked bar)
-- Calendrier Tempo (Vue détaillée jours R/B/W)
+## Envie de contribuer ou de faire tourner le projet en local ?
 
----
+Toute la partie technique (architecture des modules, ajout d'un tarif
+personnalisé, CI/CD) est documentée séparément dans
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-## 🧭 Utilisation Rapide
+## Licence
 
-### 1️⃣ Importer les données
-```
-📂 Glissez votre fichier JSON/CSV ou cliquez
-   (Fichier Enedis ou export TotalEnergies)
-```
-
-### 2️⃣ Analyser
-- Consommation annuelle affichée
-- Graphiques générés automatiquement
-- Comparaison 5+ offres (tous les tarifs chargés)
-
-### 3️⃣ Simuler PV (optionnel)
-```
-☀️ Activer Photovoltaïque
-├─ Puissance (3.0 kWc défaut)
-├─ Région (Centre défaut)
-└─ Talon consommation (W)
-```
-
-### 4️⃣ Exporter
-```
-📄 Export PDF     → Rapport complet
-📊 Export Excel   → Données détaillées 
-💾 Sauvegarder    → Historique local
-```
-
----
-
-## 📁 Architecture
-
-```
-ComparatifElec/
-├── 📄 index.html                    # Structure HTML
-├── 🖼️ favicon.ico
-├── 🎯 src/
-│   ├── app.js                       # Point d'entrée principal (1728 lignes)
-│   ├── state.js                     # Gestion état (AppStateManager)
-│   ├── analysisEngine.js            # Calculs statistiques (hourly, monthly)
-│   ├── calculationEngine.js         # Cache & optimisations DOM
-│   ├── tariffEngine.js              # Moteur calcul tarifs (type-based dispatcher)
-│   ├── tariffManager.js             # Chargement dynamique tarifs JSON
-│   ├── tariffDisplay.js             # Rendu cards tarifaires
-│   ├── chartRenderer.js             # Graphiques Chart.js (1400+ lignes)
-│   ├── fileHandler.js               # Parsing JSON/CSV/XLSX
-│   ├── uiManager.js                 # Gestion UI & événements
-│   ├── pvManager.js                 # Contrôles PV (inputs)
-│   ├── pvSimulation.js              # Calcul production solaire
-│   ├── tempoCalendar.js             # Calendrier Tempo + API
-│   ├── workflowEngine.js            # Orchestration recalculs
-│   ├── utils.js                     # Utilities & localStorage
-│   ├── exportManager.js             # Export PDF/Excel/Historique
-│   ├── csvToEnedisJson.js           # Utilitaire conversion CSV → JSON Enedis
-│   └── styles/
-│       ├── style.css                # Styles globaux
-│       ├── style-improvements.css   # Ajustements UI
-│       └── style-tariffs.css        # Styles cartes tarifaires
-├── 💾 tariffs/
-│   ├── index.json                   # Source-of-truth tarifaires
-│   ├── base.json                    # Tarif simple
-│   ├── hphc.json                    # HP/HC standard
-│   ├── tempo.json                   # Tarif Tempo
-│   ├── octopusEnergy.json           # OctopusEnergy (custom)
-│   ├── injection.json               # Prix injection réseau
-│   └── ... (custom tariffs)
-├── .github/
-│   ├── workflows/
-│   │   ├── deploy.yml               # Déploiement GitHub Pages
-│   │   └── ci.yml                   # Validation HTML/JS sur PR
-│   └── copilot-instructions.md
-└── README.md                         # Ce fichier
-```
-
----
-
-## 🏗️ Architecture Technique
-
-### 🧩 Modularité
-- **14 modules** indépendants (chacun responsabilité unique)
-- **AppStateManager** centralisé (source vérité data)
-- **Imports/exports ES6** (modules natifs)
-- **Zero-dependency** (pas npm, juste CDN pour Chart.js, jsPDF, XLSX)
-
-### 🔄 Data Flow
-```
-Fichier (JSON/CSV)
-    ↓ (parseFile)
-Records Array
-    ↓ (analyzeFilesNow)
-Stats + Charts
-    ↓ (compareOffers)
-Offers Array [dynamique]
-    ↓ (chartRenderer)
-Visualisations [5+ graphs]
-    ↓ (exportManager)
-PDF/Excel/History
-```
-
-### ⚡ Performance
-- **O(n) parsing** - Single pass JIT compilation
-- **Chart.js lazy loading** - Créé au besoin
-- **DOM caching** - readDomValuesOnce() 
-- **Calculation cache** - Invalidation intelligente
-- **100+ ms latency** pour 8760 records d'analyse
-
-### 🔐 Sécurité
-- ✅ **Zéro envoi serveur** - Tout local navigateur
-- ✅ **localStorage** - Données jamais quittent device
-- ✅ **CSP-friendly** - Pas eval, no inline scripts
-- ✅ **Auth Enedis** - Dans navigateur utilisateur uniquement
-
----
-
-## 🔧 Configuration Tarifaire (Custom)
-
-### Ajouter un Nouveau Tarif
-
-**1. Créer fichier JSON** → `tariffs/monTarif.json`
-```json
-{
-  "id": "monTarif",
-  "name": "Mon Tarif Custom",
-  "type": "two-tier",
-  "color": "#FF6B6B",
-  "php": 0.2500,
-  "phc": 0.1800,
-  "hcRange": "22-06",
-  "sub": 120,
-  "injectionPrice": 0.08
-}
-```
-
-**2. Ajouter à** → `tariffs/index.json`
-```json
-{
-  "tariffs": [
-    { "id": "monTarif", "file": "monTarif.json" }
-  ]
-}
-```
-
-**3. Redémarrer app** → Tarif découvert automatiquement ✨
-
-**Types supportés:**
-- `flat` - Prix unique (Base)
-- `two-tier` - HP/HC (heures creuses)
-- `three-tier` - HP/HC/HSC (special TCH)
-- `tempo` - Jours R/B/W variables
-- `tempo-optimized` - Variante optimisée
-
----
-
-## 📊 Phases Complétées
-
-| Phase | Statut | Date | Description |
-|-------|--------|------|-------------|
-| **Phase 1** | ✅ | Jan 2026 | Architecture de base + Analyse |
-| **Phase 2.5** | ✅ | Mar 5 2026 | Architecture 100% dynamique tarifaire |
-| **Phase 3.1** | ✅ | Mar 5 2026 | Export PDF/Excel + Historique |
-| **Phase 2** | ✅ Auto | Mar 5 2026 | Code cleanup (aucun code mort) |
-| **Phase 3.2** | 📋 Prochain | TBD | Comparateur Multi-Fournisseurs |
-| **Phase 3.3** | 📋 TBD | TBD | Alertes Tempo + Optimisation consommation |
-
----
-
-## 💡 Exemplaires d'Utilisation
-
-### Analyser une Année Complète
-```
-1. Télécharger export Enedis (JSON horaire)
-2. Importer dans app
-3. Voir comparaison 5+ offres instantanément
-4. Exporter PDF pour partage conjoint
-```
-
-### Simuler Installation PV
-```
-1. Importer données
-2. Activer PV → 3.0 kWc, Centre, 50W standby
-3. Consulter "Économies Mensuelles" chart
-4. Voir ROI 15-20 ans
-5. Exporter Excel pour devis installateur
-```
-
-### Comparer Tarifs Personnalisés
-```
-1. Créer 2-3 tarifs custom (fichiers JSON)
-2. Ajouter à index.json
-3. Exporter pour voir comparaison côte à côte
-```
-
----
-
-## 🔗 Technos
-
-**Frontend:**
-- HTML5 / CSS3 (Flexbox, Grid, CSS Variables)
-- JavaScript ES6+ (Modules, Async/Await)
-- Chart.js (Visualisations - CDN)
-- jsPDF (Export PDF - CDN)
-- html2canvas (Capture graphiques - CDN)
-- XLSX.js (Export Excel - CDN)
-
-**Data:**
-- JSON files (tariffs, config)
-- localStorage (historia analyses)
-- API Tempo (jour couleur - optionnelle)
-
-**No-Framework:** Aucun React/Vue/Angular - JS pur optimisé
-
----
-
-## 📝 Notes Dev
-
-- **Legacy code:** Des imports `script.js` existent mais non utilisés
-- **Storage key:** Clés localStorage préfixées `elec-`
-- **DEFAULTS:** Objet global contenant config (voir utils.js)
-- **AppState:** Singleton - `appState.getState()` partout
-
----
-
-## 🤝 Contribution
-
-Les contributions sont bienvenues !
-1. Forkez le repo et créez une branche depuis `main`
-2. Ouvrez `index.html` via un serveur local (voir [Prérequis & Lancement local](#-prérequis--lancement-local))
-3. Le workflow CI (`.github/workflows/ci.yml`) valide le HTML et la syntaxe JS sur chaque PR
-4. Ouvrez une Pull Request avec une description claire du changement
-
-## 📄 Licence
-
-Aucune licence n'est actuellement définie pour ce projet. En l'absence de licence, les droits par défaut du droit d'auteur s'appliquent (tous droits réservés). Si une réutilisation ouverte est souhaitée, l'ajout d'un fichier `LICENSE` (MIT, par exemple) est recommandé.
-
-## 🤝 Support
-
-Questions ou bugs ?
-- Consultez la section [🏗️ Architecture Technique](#-architecture-technique) ci-dessus
-- Modifiez `tariffs/*.json` pour custom tarifaires
-- Vérifiez console (F12) pour logs détaillés
-
-**Last Updated:** 5 mars 2026 (Phase 3.1 export complete)
+Aucune licence n'est actuellement définie pour ce projet. En l'absence de
+licence, les droits par défaut du droit d'auteur s'appliquent (tous droits
+réservés). Si une réutilisation ouverte est souhaitée, l'ajout d'un fichier
+`LICENSE` (MIT, par exemple) est recommandé.
