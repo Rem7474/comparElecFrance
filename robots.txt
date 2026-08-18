@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://elec.remcorp.fr/sitemap.xml
